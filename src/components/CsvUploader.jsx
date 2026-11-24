@@ -1,13 +1,36 @@
 /**
  * CsvUploader.jsx
  *
- * Renders a file upload area for a single CSV file.
- * Calls onLoad(rawText) when a file is selected.
+ * One file row in the Load Data card: file name, what was loaded, a status
+ * badge and a real button that opens the file picker (reachable by keyboard).
+ * Calls onLoad(rawText, fileName) when a file is selected.
+ *
+ * Props:
+ *   label        — the expected file, e.g. "rules.csv" (used in the button's accessible name)
+ *   title        — what the file holds, e.g. "Discount rules"
+ *   description  — shown before any file is chosen
+ *   fileName     — the last file chosen ('' if none)
+ *   detail       — what is loaded, e.g. "4 rules"
+ *   status       — { tone, label } from uploadStatus()
+ *   onLoad       — (rawText, fileName) => void
  */
 
 import { useRef } from 'react'
 
-export default function CsvUploader({ label, description, onLoad, hasData, fileName }) {
+const FileIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+    <path d="M14 3v5h5M9 13h6M9 17h6" />
+  </svg>
+)
+
+const UploadIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    <path d="M12 16V4M7 9l5-5 5 5M5 20h14" />
+  </svg>
+)
+
+export default function CsvUploader({ label, title, description, fileName, detail, status, onLoad }) {
   const inputRef = useRef(null)
 
   function handleFile(e) {
@@ -20,47 +43,29 @@ export default function CsvUploader({ label, description, onLoad, hasData, fileN
     e.target.value = ''
   }
 
+  const chosen = Boolean(fileName)
+
   return (
-    <div
-      style={{
-        border: `2px dashed ${hasData ? '#1e5c2c' : '#CECECE'}`,
-        borderRadius: 6,
-        padding: '1rem 1.2rem',
-        background: hasData ? '#f0faf2' : '#fafafa',
-        cursor: 'pointer',
-        transition: 'border-color 0.15s',
-      }}
-      onClick={() => inputRef.current?.click()}
-    >
+    <div className={`file-row${chosen ? '' : ' is-empty'}`}>
+      <span className="file-icon">{chosen ? <FileIcon /> : <UploadIcon />}</span>
+      <span className="file-meta">
+        <span className="file-name">{chosen ? fileName : title}</span>
+        <span className="file-sub">{chosen ? `${title} · ${detail}` : description}</span>
+        {chosen && status && <span className={`badge ${status.tone}`}>{status.label}</span>}
+      </span>
       <input
         ref={inputRef}
         type="file"
         accept=".csv"
         style={{ display: 'none' }}
         onChange={handleFile}
+        tabIndex={-1}
+        aria-hidden="true"
       />
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-        <span style={{ fontSize: 20 }}>{hasData ? '✅' : '📄'}</span>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 13, color: '#131A48' }}>{label}</div>
-          <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
-            {hasData ? fileName : description}
-          </div>
-        </div>
-        <div style={{ marginLeft: 'auto' }}>
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: hasData ? '#1e5c2c' : '#FF5800',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}
-          >
-            {hasData ? 'Change' : 'Upload'}
-          </span>
-        </div>
-      </div>
+      <button type="button" className="btn secondary sm" onClick={() => inputRef.current?.click()}>
+        {chosen ? 'Replace file' : 'Choose file'}
+        <span className="sr-only"> for {label}</span>
+      </button>
     </div>
   )
 }

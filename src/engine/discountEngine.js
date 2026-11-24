@@ -7,12 +7,13 @@
  * Data shapes:
  *
  * DiscountRule {
- *   ruleId:    string       — e.g. "RULE-01"
- *   scope:     "brand" | "platform"
- *   appliesTo: string       — e.g. "Natura Casa", "Amazon India"
- *   type:      "percentage" | "flat"
- *   value:     number       — percentage as integer (15 = 15%), flat in rupees
- *   stackable: boolean
+ *   ruleId:       string       — e.g. "RULE-01"
+ *   scope:        "brand" | "platform" | "cart"
+ *   appliesTo:    string       — e.g. "Natura Casa", "Amazon India" ("" for cart rules)
+ *   type:         "percentage" | "flat"   (cart rules are always "percentage")
+ *   value:        number       — percentage as integer (15 = 15%), flat in rupees
+ *   stackable:    boolean
+ *   minCartValue: number | null — cart rules only: the subtotal must be >= this
  * }
  *
  * CartItem {
@@ -34,6 +35,23 @@
  *   appliedRules:  string[]
  *   skippedRules:  string[]
  *   reasoning:     string   — customer-readable explanation
+ * }
+ *
+ * CartOffer {
+ *   ruleId:       string
+ *   type:         "percentage"
+ *   value:        number   — the percentage (10 = 10%)
+ *   minCartValue: number
+ *   amount:       number   — rupees actually saved
+ *   label:        string   — customer-readable, e.g. "Cart offer: 10% off — Rs.593 saved"
+ * }
+ *
+ * PricedCart {
+ *   items:        DiscountResult[]
+ *   subtotal:     number   — sum of item final prices, before cart offers
+ *   cartOffers:   CartOffer[]  — empty when no cart rule qualifies
+ *   cartDiscount: number   — total saved by cart offers
+ *   finalTotal:   number   — subtotal - cartDiscount, never below 0
  * }
  */
 
@@ -130,14 +148,15 @@ export function applyDiscounts(item, rules) {
   const appliedRules = []
   const reasoningParts = []
 
+  // Math.max(0, …) stops a large flat discount from making the price negative
   if (winner) {
-    price -= calculateDiscountAmount(price, winner)
+    price = Math.max(0, price - calculateDiscountAmount(price, winner))
     appliedRules.push(winner.ruleId)
     reasoningParts.push(ruleToReasoning(winner))
   }
 
   for (const rule of stackable) {
-    price -= calculateDiscountAmount(price, rule)
+    price = Math.max(0, price - calculateDiscountAmount(price, rule))
     appliedRules.push(rule.ruleId)
     reasoningParts.push(ruleToReasoning(rule))
   }
@@ -171,4 +190,61 @@ export function processCart(cartItems, rules) {
  */
 export function cartTotal(results) {
   return results.reduce((sum, r) => sum + r.finalPrice, 0)
+}
+
+/**
+ * Applies cart-level rules to the item subtotal.
+ * Returns { cartOffers, cartDiscount, finalTotal }.
+ *
+ * Logic (same principles as item-level rules):
+ *   1. A rule is eligible when subtotal >= rule.minCartValue. Every threshold
+ *      is checked against the subtotal BEFORE any cart discount.
+ *   2. Among eligible non-stackable rules, pick the one giving the largest
+ *      saving. On a tie the earlier rule wins (sort is stable).
+ *   3. Apply eligible stackable rules on top, in the order they were given.
+ *      They still apply when no non-stackable rule is eligible.
+ *   4. A saving never exceeds what is left, so the total never goes below 0.
+ */
+export function applyCartRules(subtotal, cartRules) {
+  const eligible = cartRules.filter((r) => subtotal >= r.minCartValue)
+  const nonStackable = eligible.filter((r) => !r.stackable)
+  const stackable = eligible.filter((r) => r.stackable)
+
+  const winner = [...nonStackable].sort(
+    (a, b) => calculateDiscountAmount(subtotal, b) - calculateDiscountAmount(subtotal, a)
+  )[0]
+  const rulesToApply = winner ? [winner, ...stackable] : stackable
+
+  let total = subtotal
+  const cartOffers = []
+
+  for (const rule of rulesToApply) {
+    const amount = Math.min(calculateDiscountAmount(total, rule), total)
+    if (amount <= 0) continue // don't show a "Rs.0 saved" line
+    total -= amount
+    cartOffers.push({
+      ruleId: rule.ruleId,
+      type: rule.type,
+      value: rule.value,
+      minCartValue: rule.minCartValue,
+      amount,
+      label: `Cart offer: ${rule.value}% off — Rs.${amount.toLocaleString('en-IN')} saved`,
+    })
+  }
+
+  return { cartOffers, cartDiscount: subtotal - total, finalTotal: total }
+}
+
+/**
+ * Prices a whole cart: item-level rules first, then cart-level rules.
+ * This is the one function the UI calls. Returns a PricedCart.
+ */
+export function priceCart(cartItems, rules) {
+  const itemRules = rules.filter((r) => r.scope !== 'cart')
+  const cartRules = rules.filter((r) => r.scope === 'cart')
+
+  const items = processCart(cartItems, itemRules)
+  const subtotal = cartTotal(items)
+
+  return { items, subtotal, ...applyCartRules(subtotal, cartRules) }
 }

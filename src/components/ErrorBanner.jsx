@@ -1,29 +1,38 @@
 /**
  * ErrorBanner.jsx
- * Displays a list of parse or validation errors.
+ * Displays every parse or validation error for one uploaded file.
+ *
+ * Props:
+ *   errors       — the error messages (all are listed, unchanged)
+ *   fileName     — optional; named in the heading
+ *   loadedCount  — optional; rows from the file that were still loaded,
+ *                  used to say whether the rest of the file was used
  */
 
-export default function ErrorBanner({ errors }) {
+export default function ErrorBanner({ errors, fileName, loadedCount }) {
   if (!errors || errors.length === 0) return null
+
+  const count = `${errors.length} issue${errors.length > 1 ? 's' : ''}`
+  let summary = null
+  if (typeof loadedCount === 'number') {
+    summary =
+      loadedCount > 0
+        ? 'The other rows were loaded. Fix these rows and choose the file again to use them.'
+        : 'No usable rows were found, so nothing from this file is in use.'
+  }
+
   return (
-    <div
-      style={{
-        background: '#fce8e8',
-        border: '1px solid #e57373',
-        borderLeft: '3px solid #c0392b',
-        borderRadius: 4,
-        padding: '0.6rem 0.9rem',
-        marginTop: '0.5rem',
-      }}
-    >
-      <div style={{ fontWeight: 700, fontSize: 12, color: '#8a1a1a', marginBottom: 4 }}>
-        {errors.length} issue{errors.length > 1 ? 's' : ''} found
+    <div className="alert danger" role="alert">
+      <span className="symbol" aria-hidden="true">!</span>
+      <div className="alert-body">
+        <p className="alert-title">{fileName ? `${count} found in ${fileName}` : `${count} found`}</p>
+        {summary && <p>{summary}</p>}
+        <ul>
+          {errors.map((e, i) => (
+            <li key={i}>{e}</li>
+          ))}
+        </ul>
       </div>
-      {errors.map((e, i) => (
-        <div key={i} style={{ fontSize: 12, color: '#5a1010', marginTop: 2 }}>
-          {e}
-        </div>
-      ))}
     </div>
   )
 }
