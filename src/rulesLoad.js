@@ -38,7 +38,6 @@ export const RULES_FILE_MESSAGES = Object.freeze({
   unreadable: 'This file could not be opened. Please choose it again.',
   empty: 'The file is empty.',
   not_csv: 'This file does not contain readable text, so it cannot be a rules CSV.',
-  not_parsed: 'The file could not be read as a rules CSV:',
   no_rows: 'The file has a header but no rule rows.',
 })
 
@@ -63,11 +62,8 @@ export function parseRulesText(text, confirmedRules) {
   if (text.includes('\u0000')) return { data: [], errors: [], fileError: RULES_FILE_MESSAGES.not_csv }
   if (text.replace(/^﻿/, '').trim() === '') return { data: [], errors: [], fileError: RULES_FILE_MESSAGES.empty }
 
-  const { data, errors } = parseRulesCSV(text)
-  // Errors without a row number come from reading the CSV itself, not from a row
-  if (data.length === 0 && errors.length > 0 && !errors.some((e) => /^Row \d+:/.test(e))) {
-    return { data: [], errors, fileError: RULES_FILE_MESSAGES.not_parsed }
-  }
+  const { data, errors, fileError } = parseRulesCSV(text)
+  if (fileError) return { data: [], errors: [], fileError } // e.g. the header lacks a required column
   const { rules, errors: clashErrors } = withoutConfirmedIdClashes(data, confirmedRules)
   return { data: rules, errors: [...errors, ...clashErrors], fileError: null }
 }

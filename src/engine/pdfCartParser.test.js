@@ -367,3 +367,135 @@ describe('parseCartPdf: the Qty column', () => {
     assert.deepEqual(result.errors, ['Row 1 (Wall Shelf): missing Brand; Qty must be a whole number from 1 to 20, got "x"'])
   })
 })
+
+// ── Rows at the edges of the table, long names, wraps and totals ──
+
+describe('parseCartPdf: incomplete rows next to the first or last row', () => {
+  const rowY = (i) => HEADER_Y - ROW_GAP * (i + 1)
+
+  test('a last row with only a price is reported, not dropped', () => {
+    const result = parseCartPdf([page(BRIEF_ROWS.slice(0, 2), { extra: [text('Rs.2,000', COLUMN_X.basePrice, rowY(2))] })])
+    assert.deepEqual(result.data, BRIEF_ITEMS.slice(0, 2))
+    assert.deepEqual(result.errors, ['Row 3: missing Product, Brand, Platform'])
+  })
+
+  test('a last row with only a product name is reported, not dropped', () => {
+    const result = parseCartPdf([page(BRIEF_ROWS.slice(0, 2), { extra: [text('Desk Lamp', COLUMN_X.product, rowY(2))] })])
+    assert.deepEqual(result.errors, ['Row 3 (Desk Lamp): missing Brand, Platform, Base Price'])
+  })
+
+  test('a first row with only a product name, between the header and the first full row, is reported', () => {
+    const items = [
+      ...headerLine(),
+      text('Desk Lamp', COLUMN_X.product, rowY(0)),
+      ...BRIEF_ROWS.slice(0, 2).flatMap((cells, i) => rowLine(cells, rowY(i + 1))),
+    ]
+    const result = parseCartPdf([{ pageNumber: 1, items }])
+    assert.deepEqual(result.errors, ['Row 1 (Desk Lamp): missing Brand, Platform, Base Price'])
+    assert.equal(result.data.length, 2)
+  })
+
+  test('a name alone at the top of a page without a header is reported, with a hint that it may continue the previous page', () => {
+    const page2 = {
+      pageNumber: 2,
+      items: [text('(Set of 2)', COLUMN_X.product, 780), ...rowLine(BRIEF_ROWS[2], 780 - ROW_GAP), ...rowLine(BRIEF_ROWS[3], 780 - 2 * ROW_GAP)],
+    }
+    const result = parseCartPdf([page(BRIEF_ROWS.slice(0, 2)), page2])
+    assert.equal(result.data.length, 4)
+    assert.deepEqual(result.errors, [
+      'Row 3 ((Set of 2)): missing Brand, Platform, Base Price (it may continue a row from the previous page, so check it in the PDF)',
+    ])
+  })
+
+  test('page text is not read as a row: a smaller footer, text left of the table, a far note and a page number', () => {
+    const extra = [
+      text('Prices include taxes.', COLUMN_X.product, rowY(2), 8), // close, but smaller type
+      text('Thank you for shopping', 10, rowY(3)), // starts left of the table
+      text('Delivery in 3 days', COLUMN_X.product, rowY(7)), // far below the last row
+      text('Page 1 of 2', COLUMN_X.platform, rowY(2) - 6), // a page number
+    ]
+    const result = parseCartPdf([page(BRIEF_ROWS.slice(0, 2), { extra })])
+    assert.deepEqual(result, { data: BRIEF_ITEMS.slice(0, 2), errors: [], notes: [], fileError: null })
+  })
+
+  test('nothing after a Total line is read as a row', () => {
+    const extra = [
+      ...rowLine(['Total', '', '', 'Rs.2,148'], rowY(2)),
+      text('Gift wrap', COLUMN_X.product, rowY(3)),
+    ]
+    const result = parseCartPdf([page(BRIEF_ROWS.slice(0, 2), { extra })])
+    assert.deepEqual(result.errors, [])
+    assert.equal(result.data.length, 2)
+  })
+})
+
+describe('parseCartPdf: long names and wrapped cells', () => {
+  test('a long product name that runs under the Brand header stays the product', () => {
+    const name = 'Handwoven Premium Cotton Cushion Cover Large'
+    const result = parseCartPdf([page([[name, 'Natura Casa', 'Amazon India', 'Rs.1,299']])])
+    assert.deepEqual(result.errors, [])
+    assert.deepEqual(result.data, [{ ...BRIEF_ITEMS[0], product: name }])
+  })
+
+  test('a brand and a product name wrapped onto the same next line are both joined to their row', () => {
+    const items = [
+      ...headerLine(),
+      ...rowLine(['Cushion Cover', 'Natura', 'Amazon India', 'Rs.1,299'], 702),
+      text('(Set of 2)', COLUMN_X.product, 690), text('Casa', COLUMN_X.brand, 690),
+      ...rowLine(BRIEF_ROWS[1], 676),
+      ...rowLine(BRIEF_ROWS[2], 650),
+    ]
+    const result = parseCartPdf([{ pageNumber: 1, items }])
+    assert.deepEqual(result.errors, [])
+    assert.deepEqual(result.data[0], { ...BRIEF_ITEMS[0], product: 'Cushion Cover (Set of 2)' })
+    assert.deepEqual(result.data.slice(1), [BRIEF_ITEMS[1], { ...BRIEF_ITEMS[2], itemId: 'ITEM-03' }])
+  })
+})
+
+describe('parseCartPdf: the printed total', () => {
+  const rowY = (i) => HEADER_Y - ROW_GAP * (i + 1)
+  const withTotal = (rows, label, amount) => page(rows, { extra: rowLine([label, '', '', amount], rowY(rows.length)) })
+  const totalNotes = (result) => result.notes.filter((note) => note.startsWith("The PDF's"))
+
+  test('a Total equal to the base prices read adds nothing', () => {
+    assert.deepEqual(totalNotes(parseCartPdf([withTotal(BRIEF_ROWS.slice(0, 2), 'Total', 'Rs.2,148')])), [])
+  })
+
+  test('a different Total gives a neutral note and keeps the cart', () => {
+    const result = parseCartPdf([withTotal(BRIEF_ROWS.slice(0, 2), 'Subtotal', 'Rs.3,000')])
+    assert.equal(result.data.length, 2)
+    assert.deepEqual(result.errors, [])
+    assert.deepEqual(totalNotes(result), [
+      "The PDF's Subtotal (Rs.3,000) is not the same as the base prices read (Rs.2,148 for 2 items). " +
+        'The PDF may count something differently, or a line may not have been read: please compare the cart with the PDF.',
+    ])
+  })
+
+  test('quantities count in the sum', () => {
+    const QTY_X = 420
+    const items = [
+      ...headerLine(), text('Qty', QTY_X, HEADER_Y),
+      ...rowLine(BRIEF_ROWS[2], rowY(0)), text('3', QTY_X + 2, rowY(0)),
+      ...rowLine(['Total', '', '', 'Rs.1,797'], rowY(1)),
+    ]
+    const result = parseCartPdf([{ pageNumber: 1, items }])
+    assert.equal(result.data.length, 3)
+    assert.deepEqual(totalNotes(result), [])
+  })
+
+  test('no comparison when the total may include other amounts', () => {
+    // A grand total or amount payable may include tax or delivery
+    assert.deepEqual(totalNotes(parseCartPdf([withTotal(BRIEF_ROWS.slice(0, 2), 'Grand Total', 'Rs.3,000')])), [])
+    // A delivery charge line in the table
+    const rows = [...BRIEF_ROWS.slice(0, 2), ['Delivery charges', '', '', 'Rs.99']]
+    assert.deepEqual(totalNotes(parseCartPdf([withTotal(rows, 'Total', 'Rs.3,000')])), [])
+    // Paise: whole-rupee prices may not add up exactly
+    const paise = [['Cushion Cover', 'Natura Casa', 'Amazon India', 'Rs.1,299.50'], BRIEF_ROWS[1]]
+    assert.deepEqual(totalNotes(parseCartPdf([withTotal(paise, 'Total', 'Rs.2,149')])), [])
+    // Two total lines: which one to compare is not clear
+    const two = page(BRIEF_ROWS.slice(0, 2), {
+      extra: [...rowLine(['Subtotal', '', '', 'Rs.3,000'], rowY(2)), ...rowLine(['Total', '', '', 'Rs.3,100'], rowY(3))],
+    })
+    assert.deepEqual(totalNotes(parseCartPdf([two])), [])
+  })
+})

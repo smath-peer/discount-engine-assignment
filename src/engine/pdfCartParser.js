@@ -9,18 +9,21 @@
  *   1. Group text into lines by vertical position.
  *   2. Find the header line holding Product, Brand, Platform and Base Price
  *      (any order, any case). Text above it is ignored (titles, order number).
- *   3. Give every piece of text below it to the column it sits under. An
+ *   3. Give every piece of text below it to the column whose header it
+ *      overlaps (see cellsOf), so a long name stays the product. An
  *      optional "Qty" (or "Quantity") column is read too; other columns in
  *      the header (such as "S.No") are ignored.
  *   4. Read each line as a row:
  *        - text in two or more columns starts a new row;
- *        - text in one column, just below a row and closer than the usual
- *          row spacing, continues that row's cell (a wrapped product name);
+ *        - text with no price, just below a row and closer than the usual
+ *          row spacing, continues that row's cells (a wrapped name or brand);
  *        - any other one-column line between rows is reported as an
  *          incomplete row, never silently merged or dropped;
- *        - one-column lines above the first row or below the last one
- *          (notes, page numbers) are ignored;
- *        - a "Total" line with no brand or platform is ignored with a note.
+ *        - a one-column line just above the first row or below the last one
+ *          is reported too when it looks like table text (see rowsOf);
+ *          other page text (titles, notes, footers, page numbers) is ignored;
+ *        - a "Total" line with no brand or platform is ignored with a note,
+ *          and compared with the items when that is clearly valid (step 6).
  *   5. Check each row with the shared validateCartItem (the same rules as
  *      the CSV cart) and its quantity (see "Quantity" below), then add one
  *      cart item per unit, numbered ITEM-01, ITEM-02, … in table order.
@@ -36,7 +39,7 @@
  *   fileError: null, or a message when no usable table exists at all
  */
 
-import { validateCartItem } from './cartItemValidator.js'
+import { validateCartItem, parsePrice } from './cartItemValidator.js'
 
 /** The columns a cart PDF must have, with the CartItem field each fills. */
 export const PDF_CART_COLUMNS = Object.freeze([
@@ -148,19 +151,42 @@ function headerColumns(line) {
   // A column's area runs to halfway across the gap before the next header
   return columns.map((column, k) => ({
     field: column.field,
+    left: column.left,
+    right: column.right,
     start: k === 0 ? -Infinity : (columns[k - 1].right + column.left) / 2,
   }))
 }
 
 // ── 3. Cells ─────────────────────────────────────────────────────
 
-/** Puts each piece of a line under the column its centre falls in; extra columns are dropped. */
+/**
+ * Puts each piece of a line under its column; extra columns are dropped.
+ * The column is decided by the headers the piece overlaps:
+ *   1. the column whose area holds the piece's left edge, if the piece
+ *      overlaps that column's header (left-aligned text, including a long
+ *      product name that runs on under the next header);
+ *   2. otherwise the header the piece overlaps most (right-aligned text,
+ *      such as a price wider than its header that starts to its left);
+ *   3. otherwise the column its centre falls in (text overlapping no header).
+ */
 function cellsOf(line, columns) {
   const cells = {}
   for (const item of line.items) {
-    const centre = item.x + item.width / 2
-    let field = columns[0].field
-    for (const column of columns) if (centre >= column.start) field = column.field
+    const left = item.x
+    const right = item.x + item.width
+    const overlap = (column) => Math.min(right, column.right) - Math.max(left, column.left)
+    const areaOf = (x) => {
+      let found = columns[0]
+      for (const column of columns) if (x >= column.start) found = column
+      return found
+    }
+
+    let column = areaOf(left)
+    if (!(overlap(column) > 0)) {
+      const best = columns.reduce((a, b) => (overlap(b) > overlap(a) ? b : a))
+      column = overlap(best) > 0 ? best : areaOf((left + right) / 2)
+    }
+    const { field } = column
     if (field === null) continue
     cells[field] = cells[field] ? `${cells[field]} ${item.str}` : item.str
   }
@@ -183,14 +209,27 @@ function tableLines(pages) {
     const quantityColumn = columns.some((column) => column.field === 'quantity')
     const pageLines = below
       .filter((line) => !headerColumns(line)) // a header repeated lower down
-      .map((line) => ({ y: line.y, fontSize: line.fontSize, cells: cellsOf(line, columns), quantityColumn }))
+      .map((line) => ({
+        y: line.y,
+        fontSize: line.fontSize,
+        cells: cellsOf(line, columns),
+        quantityColumn,
+        // The line's horizontal extent, and the header's, to tell table text from page text
+        left: Math.min(...line.items.map((item) => item.x)),
+        right: Math.max(...line.items.map((item) => item.x + item.width)),
+        tableLeft: Math.min(...columns.map((column) => column.left)),
+        tableRight: Math.max(...columns.map((column) => column.right)),
+      }))
       .filter((line) => cellCount(line.cells) > 0) // text only in ignored columns
-    result.push({ pageNumber: page.pageNumber, lines: pageLines })
+    result.push({ pageNumber: page.pageNumber, hasHeader: headerIndex >= 0, lines: pageLines })
   }
   return { found: columns !== null, pages: result }
 }
 
 const cellCount = (cells) => Object.keys(cells).length
+// A line that is clearly a row: a price and at least one other cell (a
+// wrapped line, which may now span two text cells, never has a price)
+const isPricedRow = (line) => Boolean(line.cells.basePrice) && cellCount(line.cells) >= 2
 
 /** Turns each page's lines into rows, joining wrapped cells (see the steps above). */
 function rowsOf(tablePages) {
@@ -200,39 +239,80 @@ function rowsOf(tablePages) {
   const gaps = []
   for (const { lines } of tablePages) {
     for (let k = 1; k < lines.length; k++) {
-      if (cellCount(lines[k - 1].cells) >= 2 && cellCount(lines[k].cells) >= 2) gaps.push(lines[k - 1].y - lines[k].y)
+      if (isPricedRow(lines[k - 1]) && isPricedRow(lines[k])) gaps.push(lines[k - 1].y - lines[k].y)
     }
   }
   const rowPitch = gaps.length > 0 ? median(gaps) : null
 
+  // What table rows look like: their font size and how far across the page
+  // they reach (with the header), so page text outside the table is told apart
+  const rowLines = tablePages.flatMap(({ lines }) => lines.filter((line) => cellCount(line.cells) >= 2))
+  const rowFont = rowLines.length > 0 ? median(rowLines.map((line) => line.fontSize)) : null
+  const allLines = tablePages.flatMap(({ lines }) => lines)
+  const tableLeft = Math.min(...allLines.map((line) => line.tableLeft), ...rowLines.map((line) => line.left))
+  const tableRight = Math.max(...allLines.map((line) => line.tableRight), ...rowLines.map((line) => line.right))
+
   const rows = []
-  for (const { lines } of tablePages) {
+  for (const { lines, hasHeader } of tablePages) {
     const entries = []
     let previous = null // the last line of the row being built
     for (const line of lines) {
       const count = cellCount(line.cells)
       const limit = rowPitch ? 0.75 * rowPitch : 1.3 * line.fontSize
+      // A wrapped line continues the row above: it is closer than the usual
+      // row spacing and holds only text cells (a name, brand or platform
+      // running on), never a price or quantity
       const wraps =
-        count === 1 && !line.cells.basePrice && !line.cells.quantity && previous && previous.y - line.y <= limit && entries.length > 0
+        count >= 1 && !line.cells.basePrice && !line.cells.quantity && previous && previous.y - line.y <= limit &&
+        entries.length > 0
 
       if (wraps) {
         const row = entries[entries.length - 1]
         for (const [field, text] of Object.entries(line.cells)) {
           row.cells[field] = row.cells[field] ? `${row.cells[field]} ${text}` : text
         }
-        previous = line
       } else {
-        entries.push({ kind: count >= 2 ? 'row' : 'single', cells: { ...line.cells }, quantityColumn: line.quantityColumn })
-        previous = line
+        entries.push({ kind: count >= 2 ? 'row' : 'single', cells: { ...line.cells }, quantityColumn: line.quantityColumn, line })
       }
+      previous = line
     }
-    // One-column lines count as rows only when they sit between rows
+
     const first = entries.findIndex((e) => e.kind === 'row')
     const last = entries.findLastIndex((e) => e.kind === 'row')
-    if (first >= 0) rows.push(...entries.slice(first, last + 1))
+    if (first < 0) continue
+
+    // One-column lines between rows are rows. Next to the first or last row,
+    // a one-column line is a row too when it looks like table text: close to
+    // that row (within 1.5 row spacings), inside the table's left and right
+    // edges, in the rows' font size, and not a page number. Anything else
+    // (titles, notes, footers) is page text and is ignored, as before.
+    // Nothing is read after a total line: the table has ended.
+    const reach = 1.5 * (rowPitch ?? 2 * (rowFont ?? 10))
+    const looksLikeTableText = (entry, neighbour) =>
+      Math.abs(entry.line.y - neighbour.line.y) <= reach &&
+      entry.line.left >= tableLeft - 2 &&
+      entry.line.right <= tableRight + 2 &&
+      (rowFont === null || Math.abs(entry.line.fontSize - rowFont) <= 0.15 * rowFont) &&
+      !PAGE_NUMBER.test(Object.values(entry.cells).join(' ').trim())
+
+    let from = first
+    while (from > 0 && looksLikeTableText(entries[from - 1], entries[from])) from--
+    let to = last
+    if (!isTotalLine(entries[last].cells)) {
+      while (to < entries.length - 1 && looksLikeTableText(entries[to + 1], entries[to])) to++
+    }
+    for (let k = from; k < first; k++) {
+      // At the top of a page without its own header, it may be the rest of
+      // the last row on the previous page: say so, rather than guess
+      if (!hasHeader) entries[k].hint = 'it may continue a row from the previous page, so check it in the PDF'
+    }
+    rows.push(...entries.slice(from, to + 1))
   }
   return rows
 }
+
+const PAGE_NUMBER = /^(?:page\s*)?\d+(?:\s*(?:of|\/)\s*\d+)?$/i
+const isTotalLine = (cells) => TOTAL_LINE.test(cells.product ?? '') && !cells.brand && !cells.platform
 
 // ── 5. Validation ────────────────────────────────────────────────
 
@@ -276,13 +356,18 @@ export function parseCartPdf(pages) {
   const errors = []
   const notes = []
   let rowNumber = 0
+  const totals = [] // { label, amount } of every total line
+  let comparable = true // false once anything makes a printed total unlike the sum of base prices
 
-  for (const { cells, quantityColumn } of rowsOf(table.pages)) {
-    if (TOTAL_LINE.test(cells.product ?? '') && !cells.brand && !cells.platform) {
+  for (const { cells, quantityColumn, hint } of rowsOf(table.pages)) {
+    if (isTotalLine(cells)) {
       const text = [cells.product, cells.basePrice].filter(Boolean).join(' ')
       notes.push(`The "${text}" line was not read as an item; totals are calculated from the items.`)
+      totals.push({ label: cells.product.trim(), amount: cells.basePrice ?? '' })
       continue
     }
+    // A discount, tax or delivery line means a printed total is not just the items
+    if (CHARGE_LINE.test(cells.product ?? '')) comparable = false
 
     rowNumber++
     const { quantity: _quantityText, ...itemCells } = cells
@@ -290,9 +375,10 @@ export function parseCartPdf(pages) {
     const { quantity, error: quantityError } = readQuantity(cells, quantityColumn)
     const rowErrors = quantityError ? [...itemErrors, quantityError] : itemErrors
     if (rowErrors.length > 0) {
-      errors.push(rowMessage(rowNumber, cells, rowErrors))
+      errors.push(rowMessage(rowNumber, cells, rowErrors) + (hint ? ` (${hint})` : ''))
       continue
     }
+    if (HAS_PAISE.test(cells.basePrice)) comparable = false // paise: the rounded prices may not add up exactly
     const first = data.length + 1
     for (let unit = 0; unit < quantity; unit++) data.push({ ...item, itemId: itemId(data.length + 1) })
     if (quantity > 1) {
@@ -301,5 +387,41 @@ export function parseCartPdf(pages) {
   }
 
   if (rowNumber === 0) return { data: [], errors: [], notes, fileError: PDF_FILE_ERRORS.no_rows }
+  const check = totalCheck(totals, data, comparable)
+  if (check) notes.push(check)
   return { data, errors, notes, fileError: null }
+}
+
+// ── 6. The printed total ─────────────────────────────────────────
+//
+// A total printed in the PDF is compared with the sum of the base prices
+// read (one per unit, so quantities count) only when the two are clearly the
+// same kind of number:
+//   - there is exactly one total line, labelled just "Total" or "Subtotal"
+//     ("Grand total" or "Amount payable" may include tax or delivery);
+//   - its amount is a readable whole-rupee amount;
+//   - no accepted price has paise (whole-rupee rounding could differ);
+//   - the table has no discount, tax, delivery or other charge line.
+// A difference is a neutral note: it never rejects the cart and never
+// assumes which row is missing, since the PDF's total may differ for its
+// own reasons.
+
+const COMPARABLE_TOTAL = /^(?:sub[\s-]?total|total)\s*:?$/i
+const HAS_PAISE = /\d\.\d/ // "1,299.50", not the dot in "Rs.1,299"
+const CHARGE_LINE = /\b(?:discount|coupon|tax|gst|vat|shipping|delivery|charges?|fees?)\b/i
+const rupees = (amount) => `Rs.${amount.toLocaleString('en-IN')}`
+
+function totalCheck(totals, data, comparable) {
+  if (!comparable || totals.length !== 1 || data.length === 0) return null
+  const [{ label, amount }] = totals
+  if (!COMPARABLE_TOTAL.test(label) || HAS_PAISE.test(amount)) return null
+  const { value: printed } = parsePrice(amount)
+  if (printed === undefined) return null
+  const sum = data.reduce((total, item) => total + item.basePrice, 0)
+  if (printed === sum) return null
+  return (
+    `The PDF's ${label.replace(/:$/, '')} (${rupees(printed)}) is not the same as the base prices read ` +
+    `(${rupees(sum)} for ${data.length} ${data.length === 1 ? 'item' : 'items'}). ` +
+    'The PDF may count something differently, or a line may not have been read: please compare the cart with the PDF.'
+  )
 }

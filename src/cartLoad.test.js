@@ -125,6 +125,26 @@ describe('applyCartLoad', () => {
     assert.deepEqual(notice, { tone: 'success', title: '6 items loaded from cart.csv', lines: [], skipped: [], notes: [], canUndo: false })
   })
 
+  test('a cart CSV whose header lacks a column keeps the current cart and says which column', async () => {
+    const first = applyCartLoad(INITIAL_CART_STATE, await csvCart(), { fileName: 'cart.csv' })
+    const bad = await read(textFile('item_id,product,brand,platform,price\nITEM-01,Cushion Cover,Natura Casa,Amazon India,1299', 'bad.csv'))
+    const { state, notice } = applyCartLoad(first.state, bad, { fileName: 'bad.csv', calculated: true })
+    assert.equal(state.cart, first.state.cart)
+    assert.equal(notice.tone, 'danger')
+    assert.deepEqual(notice.lines, [
+      'The header row is missing the column base_price. The first line must name the columns: item_id, product, brand, platform, base_price.',
+      'Your cart is unchanged: 6 items from cart.csv.',
+    ])
+  })
+
+  test('a cart CSV with one malformed row loads the other rows and lists that row', async () => {
+    const text = 'item_id,product,brand,platform,base_price\nITEM-01,Cushion Cover,Natura Casa,Amazon India,1299\nITEM-02,Bed Sheet Set,Natura Casa,Flipkart,1,299'
+    const { state, notice } = applyCartLoad(INITIAL_CART_STATE, await read(textFile(text, 'cart.csv')), { fileName: 'cart.csv' })
+    assert.equal(state.cart.items.length, 1)
+    assert.equal(notice.tone, 'warning')
+    assert.match(notice.skipped[0], /^Row 3: has 6 values but the header has 5/)
+  })
+
   test('a new file replaces the whole cart and can be undone', async () => {
     const first = applyCartLoad(INITIAL_CART_STATE, await csvCart(), { fileName: 'cart.csv' })
     const { state, notice } = await loadInto(first.state, 'sample-data/cart.pdf', 'cart.pdf', true)
@@ -150,7 +170,7 @@ describe('applyCartLoad', () => {
       'Skipped rows are not in your cart. Check them in the PDF, or upload the cart as a CSV to include them.',
     ])
     assert.deepEqual(notice.skipped, state.cart.skipped)
-    assert.equal(notice.notes.length, 1)
+    assert.equal(notice.notes.length, 2) // the Total line, and that it differs from the rows read
     assert.equal(notice.canUndo, true)
   })
 

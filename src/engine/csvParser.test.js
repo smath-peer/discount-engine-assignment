@@ -582,3 +582,101 @@ describe('parseRulesCSV: duplicate rules', () => {
     assert.equal(priceCart(cart.data, rules.data).finalTotal, 5339)
   })
 })
+
+describe('malformed CSV rows: good rows are kept only when row boundaries are certain', () => {
+  const CART = 'item_id,product,brand,platform,base_price'
+  const cart = (...rows) => parseCartCSV([CART, ...rows].join('\n'))
+  const GOOD_1 = 'ITEM-01,Cushion Cover,Natura Casa,Amazon India,1299'
+  const GOOD_3 = 'ITEM-03,Wall Shelf,LivSpace Pro,Amazon India,599'
+
+  test('an unquoted comma in a price skips only that row, without guessing which value is extra', () => {
+    const { data, errors, fileError } = cart(GOOD_1, 'ITEM-02,Bed Sheet Set,Natura Casa,Flipkart,1,299', GOOD_3)
+    assert.equal(fileError, undefined)
+    assert.deepEqual(data.map((item) => item.itemId), ['ITEM-01', 'ITEM-03'])
+    assert.deepEqual(errors, [
+      'Row 3: has 6 values but the header has 5, so it was skipped. ' +
+        'This is often a comma inside a name or a price such as 1,299: put that value in double quotes.',
+    ])
+  })
+
+  test('an unquoted comma in a product name skips only that row', () => {
+    const { data, errors } = cart(GOOD_1, 'ITEM-02,Cushion Cover, Large,Natura Casa,Amazon India,1299', GOOD_3)
+    assert.equal(data.length, 2)
+    assert.match(errors[0], /^Row 3: has 6 values but the header has 5/)
+  })
+
+  test('the same values in double quotes are read correctly', () => {
+    const { data, errors } = cart('ITEM-02,"Cushion Cover, Large",Natura Casa,Amazon India,"1,299"')
+    assert.deepEqual(errors, [])
+    assert.deepEqual(data[0], { itemId: 'ITEM-02', product: 'Cushion Cover, Large', brand: 'Natura Casa', platform: 'Amazon India', basePrice: 1299 })
+  })
+
+  test('a row with too few values is skipped with its count', () => {
+    const { data, errors } = cart(GOOD_1, 'ITEM-02,Bed Sheet Set,Flipkart,849', GOOD_3)
+    assert.equal(data.length, 2)
+    assert.deepEqual(errors, ['Row 3: has 4 values but the header has 5, so it was skipped.'])
+  })
+
+  test('an unclosed quote keeps the rows before it and reports that the rest could not be read', () => {
+    const { data, errors } = cart(GOOD_1, 'ITEM-02,"Bed Sheet Set,Natura Casa,Flipkart,849', GOOD_3, 'ITEM-04,Ceramic Vase,LivSpace Pro,Noon,2499')
+    assert.deepEqual(data.map((item) => item.itemId), ['ITEM-01'])
+    assert.deepEqual(errors, [
+      'Row 3: a quote mark (") is not closed on this line, so this row and the rest of the file could not be read reliably. Rows before it were read.',
+    ])
+  })
+
+  test('an unclosed quote on the last line is reported the same way', () => {
+    const { data, errors } = cart(GOOD_1, 'ITEM-02,"Bed Sheet Set,Natura Casa,Flipkart,849')
+    assert.equal(data.length, 1)
+    assert.ok(errors[0].startsWith('Row 3: a quote mark (") is not closed on this line'))
+  })
+
+  test('a quote closed on a later line is not trusted: the lines in between are not read as rows', () => {
+    const { data, errors } = cart(GOOD_1, 'ITEM-02,"Bed Sheet', 'Set",Natura Casa,Flipkart,849', GOOD_3)
+    assert.deepEqual(data.map((item) => item.itemId), ['ITEM-01'])
+    assert.ok(errors[0].startsWith('Row 3: a quote mark (") is not closed on this line'))
+  })
+
+  test('a header missing required columns is one file error, not an error per row', () => {
+    const { data, errors, fileError } = parseCartCSV('item_id,product,brand,platform,price\nITEM-01,Cushion Cover,Natura Casa,Amazon India,1299')
+    assert.deepEqual(data, [])
+    assert.deepEqual(errors, [])
+    assert.equal(
+      fileError,
+      'The header row is missing the column base_price. The first line must name the columns: item_id, product, brand, platform, base_price.',
+    )
+  })
+
+  test('an empty file has no rows and no raw parser message', () => {
+    assert.deepEqual(parseCartCSV(''), { data: [], errors: [] })
+    assert.deepEqual(parseRulesCSV('  \n '), { data: [], errors: [] })
+  })
+
+  test('values are always separated by commas, never by a guessed separator', () => {
+    const { fileError } = parseCartCSV('item_id;product;brand;platform;base_price\nITEM-01;Cushion Cover;Natura Casa;Amazon India;1299')
+    assert.match(fileError, /^The header row is missing the columns item_id, product, brand, platform, base_price\./)
+  })
+
+  test('rules: a malformed row is skipped and the other rules load (an older 6-column file still loads)', () => {
+    const { data, errors } = parseRows(
+      'RULE-01,platform,Amazon India,percentage,15,false,',
+      'RULE-02,brand,Natura Casa,flat,150,false', // one value short of the 7-column header
+      'RULE-03,platform,Flipkart,percentage,10,true,,extra',
+      'RULE-04,cart,,percentage,10,false,4000',
+    )
+    assert.deepEqual(data.map((r) => r.ruleId), ['RULE-01', 'RULE-04'])
+    assert.deepEqual(errors, [
+      'Row 3: has 6 values but the header has 7, so it was skipped.',
+      'Row 4: has 8 values but the header has 7, so it was skipped. ' +
+        'This is often a comma inside a name or a price such as 1,299: put that value in double quotes.',
+    ])
+    assert.deepEqual(parseRulesCSV('rule_id,scope,applies_to,type,value,stackable\nR1,brand,Natura Casa,flat,150,false').errors, [])
+  })
+
+  test('the sample files still read cleanly and price to Rs.5,339', () => {
+    const rules = parseRulesCSV(readFileSync(new URL('../../sample-data/rules.csv', import.meta.url), 'utf8'))
+    const cartFile = parseCartCSV(readFileSync(new URL('../../sample-data/cart.csv', import.meta.url), 'utf8'))
+    assert.deepEqual([rules.errors, cartFile.errors], [[], []])
+    assert.equal(priceCart(cartFile.data, rules.data).finalTotal, 5339)
+  })
+})

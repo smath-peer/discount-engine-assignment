@@ -334,6 +334,21 @@ export function fixtureFiles() {
       }),
     },
     {
+      path: 'test-fixtures/pdf/edge-rows.pdf',
+      about: 'A long product name, an incomplete last row and a page footer',
+      bytes: buildPdf({
+        pages: [cartPage({
+          heading: BRIEF_HEADING,
+          rows: [
+            ['Handwoven Premium Cotton Cushion Cover Large', 'Natura Casa', 'Amazon India', 'Rs.1,299'],
+            ['Bed Sheet Set', 'Natura Casa', 'Flipkart', 'Rs.849'],
+            ['Desk Lamp', '', '', ''],
+          ],
+          footer: 'Page 1 of 1. Prices include taxes.',
+        })],
+      }),
+    },
+    {
       path: 'test-fixtures/pdf/header-only.pdf',
       about: 'A cart table with its header and no rows',
       bytes: buildPdf({ pages: [cartPage({ heading: ['Cart'], rows: [] })] }),

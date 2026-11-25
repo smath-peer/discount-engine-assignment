@@ -51,11 +51,17 @@ describe('readRulesFile / parseRulesText', () => {
     assert.equal(parseRulesText('%PDF-1.7\u0000\u0001', []).fileError, RULES_FILE_MESSAGES.not_csv)
   })
 
-  test('a CSV that cannot be read as a whole explains why, without row numbers to point to', () => {
-    const result = parseRulesText(rulesText('R1,brand,Natura Casa,flat,150,false,,extra'), [])
-    assert.equal(result.fileError, RULES_FILE_MESSAGES.not_parsed)
-    assert.equal(result.data.length, 0)
-    assert.ok(result.errors.length > 0)
+  test('a header without the required columns is a file error naming them', () => {
+    const result = parseRulesText('id,scope,applies_to,type,amount,stackable\nR1,brand,Natura Casa,flat,150,false', [])
+    assert.deepEqual(result.data, [])
+    assert.match(result.fileError, /^The header row is missing the columns rule_id, value\. /)
+  })
+
+  test('a malformed row is skipped and the good rows still load', () => {
+    const result = parseRulesText(rulesText('R1,brand,Natura Casa,flat,150,false,,extra', 'R2,brand,Natura Casa,flat,100,false,'), [])
+    assert.deepEqual(result.data.map((r) => r.ruleId), ['R2'])
+    assert.equal(result.fileError, null)
+    assert.match(result.errors[0], /^Row 2: has 8 values but the header has 7, so it was skipped\./)
   })
 
   test('a file whose rows are all invalid has row messages and no file error', () => {
@@ -101,7 +107,11 @@ describe('applyRulesLoad: an upload that cannot be used keeps the current offers
     ['an empty file', '', [RULES_FILE_MESSAGES.empty]],
     ['a header-only file', HEADER, [RULES_FILE_MESSAGES.no_rows]],
     ['a file of invalid rows', rulesText('R1,planet,Mars,percentage,10,false,', 'R2,brand,Natura Casa,percentage,150,false,'), ['2 rows found, but none could be used:']],
-    ['a malformed CSV', rulesText('R1,brand,Natura Casa,flat,150'), [RULES_FILE_MESSAGES.not_parsed]],
+    ['a malformed CSV', rulesText('R1,brand,Natura Casa,flat,150'), ['1 row found, but none could be used:']],
+    ['a header without the required columns', 'id,offer\nR1,10', [
+      'The header row is missing the columns rule_id, scope, applies_to, type, value, stackable. ' +
+      'The first line must name the columns: rule_id, scope, applies_to, type, value, stackable.',
+    ]],
     ['non-text bytes', 'PK\u0003\u0004\u0000\u0000', [RULES_FILE_MESSAGES.not_csv]],
   ]
   for (const [name, text, firstLines] of cases) {

@@ -19,9 +19,103 @@ import Papa from 'papaparse'
 import { validateRule } from './discountRuleValidator.js'
 import { validateCartItem } from './cartItemValidator.js'
 
+// ── Reading the CSV structure (shared by both files) ─────────────
+//
+// A malformed row does not discard the rest of the file. Each row is kept
+// only when its boundaries are certain:
+//   - A row with more values than the header (often an unquoted comma in a
+//     name, or a price such as 1,299) is skipped: which value is extra cannot
+//     be known, so none is guessed.
+//   - A row with fewer values than the header is skipped the same way.
+//   - A quote mark that is not closed on its own line makes every later line
+//     uncertain (they may belong to the quoted value). The rows before it are
+//     kept; that row and everything after it are reported as not read.
+// The header must name every required column; otherwise the whole file is
+// unusable and nothing in it is read (fileError).
+// Values are always separated by commas: the separator is not guessed.
+
+export const CART_REQUIRED_COLUMNS = Object.freeze(['item_id', 'product', 'brand', 'platform', 'base_price'])
+// min_cart_value is optional as a column (older 6-column files still load)
+export const RULES_REQUIRED_COLUMNS = Object.freeze(['rule_id', 'scope', 'applies_to', 'type', 'value', 'stackable'])
+
+const hasLineBreak = (value) => typeof value === 'string' && /[\r\n]/.test(value)
+
+/**
+ * Splits CSV text into rows, keeping only rows whose boundaries are certain.
+ * Returns { entries, fileError }:
+ *   entries: [{ row, rowNum }] for rows to read, or [{ rowNum, problem }] for
+ *            rows that could not be read, in file order
+ *   fileError: null, or why the file cannot be used at all
+ */
+export function readCsvRows(csvText, requiredColumns) {
+  const { data: rows, errors: parseErrors, meta } = Papa.parse(csvText.trim(), {
+    header: true,
+    skipEmptyLines: true,
+    delimiter: ',',
+    transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, '_'),
+  })
+
+  const columns = meta.fields ?? []
+  if (columns.length === 0) return { entries: [], fileError: null } // an empty file: no rows
+  const missing = requiredColumns.filter((column) => !columns.includes(column))
+  if (missing.length > 0) {
+    return {
+      entries: [],
+      fileError:
+        `The header row is missing ${missing.length === 1 ? 'the column' : 'the columns'} ${missing.join(', ')}. ` +
+        `The first line must name the columns: ${requiredColumns.join(', ')}.`,
+    }
+  }
+
+  const tooFew = new Set(parseErrors.filter((e) => e.code === 'TooFewFields').map((e) => e.row))
+  // An unclosed quote either swallows later lines into one value (a line
+  // break inside it) or, on the last line, just runs to the end of the file
+  const quoteRow = parseErrors.some((e) => e.code === 'MissingQuotes')
+    ? rows.findIndex((row) => Object.values(row).some(hasLineBreak)) : -1
+  const unclosedAt = quoteRow >= 0 || !parseErrors.some((e) => e.code === 'MissingQuotes') ? quoteRow : rows.length - 1
+
+  const entries = []
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    const rowNum = i + 2 // account for header row
+    // A value spanning lines means a quote opened here was closed on a later
+    // line: the lines in between cannot be told apart from this value
+    if (i === unclosedAt || Object.values(row).some(hasLineBreak) || (row.__parsed_extra ?? []).some(hasLineBreak)) {
+      entries.push({
+        rowNum,
+        problem:
+          `Row ${rowNum}: a quote mark (") is not closed on this line, so this row and the rest of the file ` +
+          'could not be read reliably. Rows before it were read.',
+      })
+      break
+    }
+    if (row.__parsed_extra) {
+      const count = columns.length + row.__parsed_extra.length
+      entries.push({
+        rowNum,
+        problem:
+          `Row ${rowNum}: has ${count} values but the header has ${columns.length}, so it was skipped. ` +
+          'This is often a comma inside a name or a price such as 1,299: put that value in double quotes.',
+      })
+      continue
+    }
+    if (tooFew.has(i)) {
+      entries.push({
+        rowNum,
+        problem: `Row ${rowNum}: has ${Object.keys(row).length} values but the header has ${columns.length}, so it was skipped.`,
+      })
+      continue
+    }
+    entries.push({ row, rowNum })
+  }
+  return { entries, fileError: null }
+}
+
 /**
  * Parses the raw text of rules.csv into an array of DiscountRule objects.
- * Returns { data, errors } where errors is an array of row-level issues.
+ * Returns { data, errors } where errors is an array of row-level issues
+ * (including rows skipped by readCsvRows), or { data: [], errors: [], fileError }
+ * when the header does not name every required column.
  *
  * The work is split in two:
  *   - This parser handles the CSV itself: blank cells, turning text into
@@ -33,23 +127,19 @@ import { validateCartItem } from './cartItemValidator.js'
  * puts the row's own rule_id back on the validated rule.
  */
 export function parseRulesCSV(csvText) {
-  const { data: rows, errors: parseErrors } = Papa.parse(csvText.trim(), {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, '_'),
-  })
-
-  if (parseErrors.length > 0) {
-    return { data: [], errors: parseErrors.map((e) => e.message) }
-  }
+  const { entries, fileError } = readCsvRows(csvText, RULES_REQUIRED_COLUMNS)
+  if (fileError) return { data: [], errors: [], fileError }
 
   const data = []
   const errors = []
   const seenIds = new Map() // rule_id key → { rowNum, terms } of the row that kept it
   const seenTerms = new Map() // terms key → { rowNum, ruleId }
 
-  rows.forEach((row, i) => {
-    const rowNum = i + 2 // account for header row
+  entries.forEach(({ row, rowNum, problem }) => {
+    if (problem) {
+      errors.push(problem)
+      return
+    }
 
     // ── Step 1: blank cells (CSV structure) ──
     // All blank required cells are reported together in one message.
@@ -212,28 +302,26 @@ function cartRowMessage(rowNum, errors) {
 
 /**
  * Parses the raw text of cart.csv into an array of CartItem objects.
- * Returns { data, errors } where errors is an array of row-level issues.
+ * Returns { data, errors } where errors is an array of row-level issues
+ * (including rows skipped by readCsvRows), or { data: [], errors: [], fileError }
+ * when the header does not name every required column.
  *
  * This parser handles the CSV itself (columns, row numbers, messages);
  * validateCartItem (shared with the PDF parser) decides whether each row is
  * usable, including the strict price check.
  */
 export function parseCartCSV(csvText) {
-  const { data: rows, errors: parseErrors } = Papa.parse(csvText.trim(), {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, '_'),
-  })
-
-  if (parseErrors.length > 0) {
-    return { data: [], errors: parseErrors.map((e) => e.message) }
-  }
+  const { entries, fileError } = readCsvRows(csvText, CART_REQUIRED_COLUMNS)
+  if (fileError) return { data: [], errors: [], fileError }
 
   const data = []
   const errors = []
 
-  rows.forEach((row, i) => {
-    const rowNum = i + 2 // account for header row
+  entries.forEach(({ row, rowNum, problem }) => {
+    if (problem) {
+      errors.push(problem)
+      return
+    }
     const { item, errors: rowErrors } = validateCartItem({
       itemId: row.item_id,
       product: row.product,

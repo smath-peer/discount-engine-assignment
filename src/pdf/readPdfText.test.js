@@ -159,7 +159,11 @@ describe('real PDFs, end to end (bytes → text → CartItems)', () => {
       'Row 5 (Cutting Board): Base Price "TBD" is not a readable amount (for example Rs.1,299)',
       'Row 6 (Desk Organiser): Base Price must be at least Rs.1, got "Rs.0"',
     ])
-    assert.deepEqual(result.notes, ['The "Total Rs.5,095" line was not read as an item; totals are calculated from the items.'])
+    assert.deepEqual(result.notes, [
+      'The "Total Rs.5,095" line was not read as an item; totals are calculated from the items.',
+      "The PDF's Total (Rs.5,095) is not the same as the base prices read (Rs.2,148 for 2 items). " +
+        'The PDF may count something differently, or a line may not have been read: please compare the cart with the PDF.',
+    ])
     assert.equal(result.fileError, null)
   })
 
@@ -193,6 +197,16 @@ describe('real PDFs, end to end (bytes → text → CartItems)', () => {
     assert.equal(priced.subtotal, 3889)
     assert.equal(priced.cartDiscount, 0)
     assert.equal(priced.finalTotal, 3889)
+  })
+
+  test('edge-rows.pdf keeps a long name whole, reports the incomplete last row and ignores the footer', async () => {
+    const result = await cartFromPdf(fixture('edge-rows.pdf'))
+    assert.deepEqual(result.data.map((item) => [item.itemId, item.product, item.brand]), [
+      ['ITEM-01', 'Handwoven Premium Cotton Cushion Cover Large', 'Natura Casa'],
+      ['ITEM-02', 'Bed Sheet Set', 'Natura Casa'],
+    ])
+    assert.deepEqual(result.errors, ['Row 3 (Desk Lamp): missing Brand, Platform, Base Price'])
+    assert.deepEqual(result.notes, [])
   })
 
   test('header-only.pdf reports no rows', async () => {
