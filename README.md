@@ -22,6 +22,15 @@ input handling was hardened: rows are checked one by one, uploads can be undone,
 prevented, and offers can be entered or edited by hand. None of this changes how prices are
 calculated.
 
+## Features and customer benefits
+
+- **Clear price breakdown:** Customers can see the original price, applied discounts, savings on each item and the final amount to pay, making it easier to understand exactly what they are paying for.
+- **Flexible cart uploads:** Load carts through CSV or PDF files. Invalid rows are explained, successful replacements can be undone, and PDF quantities are handled automatically.
+- **Smarter offer discovery:** Add offers through a rules file, natural-language descriptions or manual entry. AI-generated offers can be reviewed and edited before confirmation.
+- **Offer comparison:** Compare competing offers and preview how alternatives affect the cart total without accidentally changing the active discount.
+- **Safer offer management:** Remove offers, undo changes and prevent duplicate offers, giving customers more control over the discounts applied.
+- **Automatic recalculation:** Cart prices and checkout totals update as items or active offers change, keeping the displayed savings and amount payable consistent.
+
 ## Architecture
 
 ![Discount Engine architecture](assets/architecture.svg)
