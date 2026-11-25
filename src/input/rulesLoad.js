@@ -24,9 +24,9 @@
  * only when the caller says prices are on screen after the change.
  */
 
-import { parseRulesCSV } from './engine/csvParser.js'
-import { withoutConfirmedIdClashes } from './appRules.js'
-import { plural } from './components/loadStatus.js'
+import { parseRulesCSV } from './csvParser.js'
+import { withoutConfirmedIdClashes } from '../appRules.js'
+import { plural } from '../components/loadStatus.js'
 
 /** The CSV offers in use: the rules, the file they came from and that file's skipped rows. */
 export const EMPTY_RULES = Object.freeze({ rules: [], fileName: '', errors: [] })

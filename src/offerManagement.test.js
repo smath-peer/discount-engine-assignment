@@ -14,7 +14,7 @@ import {
 import {
   ruleInputReducer, initialRuleInputState, EMPTY_DRAFT, draftFromRule, draftToRule, updateDraft, buildConfirmedRule, canSubmit,
 } from './components/ruleInputState.js'
-import { parseRulesCSV, parseCartCSV } from './engine/csvParser.js'
+import { parseRulesCSV, parseCartCSV } from './input/csvParser.js'
 import { previewRule } from './engine/rulePreview.js'
 
 const readSample = (name) => readFileSync(new URL(`../sample-data/${name}`, import.meta.url), 'utf8')

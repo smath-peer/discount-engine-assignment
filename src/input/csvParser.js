@@ -16,8 +16,8 @@
  */
 
 import Papa from 'papaparse'
-import { validateRule, ruleTermsKey } from './discountRuleValidator.js'
-import { validateCartItem } from './cartItemValidator.js'
+import { validateRule, ruleTermsKey } from '../engine/discountRuleValidator.js'
+import { validateCartItem } from '../engine/cartItemValidator.js'
 
 // ── Reading the CSV structure (shared by both files) ─────────────
 //

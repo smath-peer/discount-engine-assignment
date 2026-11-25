@@ -7,7 +7,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { combineRules, canCalculate, computeResults, addConfirmedRule, withoutConfirmedIdClashes } from './appRules.js'
-import { parseRulesCSV, parseCartCSV } from './engine/csvParser.js'
+import { parseRulesCSV, parseCartCSV } from './input/csvParser.js'
 import { buildConfirmedRule } from './components/ruleInputState.js'
 import { previewRule } from './engine/rulePreview.js'
 

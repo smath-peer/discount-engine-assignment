@@ -24,7 +24,7 @@
  * The rule is re-checked with the shared validator; no ruleId is assigned here.
  */
 
-import { validateRule } from './engine/discountRuleValidator.js'
+import { validateRule } from '../engine/discountRuleValidator.js'
 
 export const PARSE_RULE_ENDPOINT = '/api/parse-rule'
 export const CLIENT_TIMEOUT_MS = 20_000

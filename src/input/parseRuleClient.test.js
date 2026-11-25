@@ -13,7 +13,7 @@ import {
   MIN_TEXT_LENGTH,
   MAX_TEXT_LENGTH,
 } from './parseRuleClient.js'
-import * as server from '../api/_lib/interpretRule.js'
+import * as server from '../../api/_lib/interpretRule.js'
 
 // ── Fixtures ──────────────────────────────────────────────────────
 

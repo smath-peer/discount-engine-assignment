@@ -19,10 +19,10 @@
  * rules, so every change here re-prices automatically.
  */
 
-import { parseCartCSV } from './engine/csvParser.js'
-import { parseCartPdf } from './engine/pdfCartParser.js'
+import { parseCartCSV } from './csvParser.js'
+import { parseCartPdf } from './pdfCartParser.js'
 import { readPdfText, looksLikePdf, PDF_READ_MESSAGES } from './pdf/readPdfText.js'
-import { plural } from './components/loadStatus.js'
+import { plural } from '../components/loadStatus.js'
 
 /** The cart in use: its items, the file they came from, and that file's skipped rows and notes. */
 export const EMPTY_CART = Object.freeze({ items: [], fileName: '', format: null, skipped: [], notes: [] })

@@ -12,11 +12,11 @@ import {
   EMPTY_CART, INITIAL_CART_STATE, CART_FILE_MESSAGES,
 } from './cartLoad.js'
 import { PDF_READ_MESSAGES } from './pdf/readPdfText.js'
-import { PDF_FILE_ERRORS } from './engine/pdfCartParser.js'
-import { parseRulesCSV } from './engine/csvParser.js'
-import { computeResults } from './appRules.js'
+import { PDF_FILE_ERRORS } from './pdfCartParser.js'
+import { parseRulesCSV } from './csvParser.js'
+import { computeResults } from '../appRules.js'
 
-const projectFile = (path) => readFileSync(new URL(`../${path}`, import.meta.url))
+const projectFile = (path) => readFileSync(new URL(`../../${path}`, import.meta.url))
 const fileFrom = (path, name = path.split('/').pop(), type = '') => new File([projectFile(path)], name, { type })
 const textFile = (text, name, type = 'text/csv') => new File([text], name, { type })
 const loadPdfjs = async () => pdfjs

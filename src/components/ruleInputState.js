@@ -29,7 +29,7 @@
  */
 
 import { validateRule } from '../engine/discountRuleValidator.js'
-import { MIN_TEXT_LENGTH, MAX_TEXT_LENGTH } from '../parseRuleClient.js'
+import { MIN_TEXT_LENGTH, MAX_TEXT_LENGTH } from '../input/parseRuleClient.js'
 
 export const initialRuleInputState = Object.freeze({
   phase: 'idle', // 'idle' | 'loading' | 'review' | 'clarification' | 'unsupported' | 'error'

@@ -2,7 +2,7 @@
  * Tests for pdfCartParser.js — run with `npm test` (Node's built-in test runner).
  *
  * These build the positioned text directly, so every layout case is exact and
- * no PDF library is involved. src/pdf/readPdfText.test.js covers real PDFs.
+ * no PDF library is involved. src/input/pdf/readPdfText.test.js covers real PDFs.
  */
 
 import { test, describe } from 'node:test'

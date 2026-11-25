@@ -6,8 +6,8 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { parseRulesCSV, parseCartCSV } from './csvParser.js'
-import { validateRule } from './discountRuleValidator.js'
-import { priceCart } from './discountEngine.js'
+import { validateRule } from '../engine/discountRuleValidator.js'
+import { priceCart } from '../engine/discountEngine.js'
 
 const NEW_HEADER = 'rule_id,scope,applies_to,type,value,stackable,min_cart_value'
 

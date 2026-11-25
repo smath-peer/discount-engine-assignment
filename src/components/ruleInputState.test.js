@@ -23,11 +23,11 @@ import {
   previewHasTotals,
   PERCENTAGE_OVER_100_MESSAGE,
 } from './ruleInputState.js'
-import { parseRuleInstruction } from '../parseRuleClient.js'
+import { parseRuleInstruction } from '../input/parseRuleClient.js'
 import { interpretRule } from '../../api/_lib/interpretRule.js'
 import { previewRule } from '../engine/rulePreview.js'
 import { priceCart } from '../engine/discountEngine.js'
-import { parseRulesCSV, parseCartCSV } from '../engine/csvParser.js'
+import { parseRulesCSV, parseCartCSV } from '../input/csvParser.js'
 
 const readSample = (name) => readFileSync(new URL(`../../sample-data/${name}`, import.meta.url), 'utf8')
 const SAMPLE_RULES = parseRulesCSV(readSample('rules.csv')).data
@@ -503,7 +503,7 @@ describe('RuleInput.jsx source', () => {
   const source = readFileSync(new URL('./RuleInput.jsx', import.meta.url), 'utf8')
 
   test('uses the browser client and the preview, not its own request or pricing code', () => {
-    assert.match(source, /from '\.\.\/parseRuleClient\.js'/)
+    assert.match(source, /from '\.\.\/input\/parseRuleClient\.js'/)
     assert.match(source, /from '\.\.\/engine\/rulePreview\.js'/)
     assert.doesNotMatch(source, /\bfetch\(/)
     assert.doesNotMatch(source, /priceCart|calculateDiscountAmount|applyCartRules/)

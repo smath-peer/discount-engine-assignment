@@ -39,7 +39,7 @@
  *   fileError: null, or a message when no usable table exists at all
  */
 
-import { validateCartItem, parsePrice } from './cartItemValidator.js'
+import { validateCartItem, parsePrice } from '../engine/cartItemValidator.js'
 
 /** The columns a cart PDF must have, with the CartItem field each fills. */
 export const PDF_CART_COLUMNS = Object.freeze([

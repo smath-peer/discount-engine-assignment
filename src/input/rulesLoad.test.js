@@ -10,12 +10,12 @@ import {
   readRulesFile, parseRulesText, applyRulesLoad, undoRulesLoad, withdrawRulesUndo,
   INITIAL_RULES_STATE, RULES_FILE_MESSAGES,
 } from './rulesLoad.js'
-import { parseCartCSV } from './engine/csvParser.js'
-import { combineRules, computeResults } from './appRules.js'
-import { checkoutSummary } from './checkout/checkoutSummary.js'
-import { appliedOfferBreakdown } from './checkout/offerComparison.js'
+import { parseCartCSV } from './csvParser.js'
+import { combineRules, computeResults } from '../appRules.js'
+import { checkoutSummary } from '../checkout/checkoutSummary.js'
+import { appliedOfferBreakdown } from '../checkout/offerComparison.js'
 
-const projectText = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
+const projectText = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')
 const SAMPLE_RULES_TEXT = projectText('sample-data/rules.csv')
 const CART = parseCartCSV(projectText('sample-data/cart.csv')).data
 const HEADER = 'rule_id,scope,applies_to,type,value,stackable,min_cart_value'

@@ -10,7 +10,7 @@ import {
   openPreview, closePreview, currentPreview,
 } from './offerComparison.js'
 import { priceCart, applyDiscounts } from '../engine/discountEngine.js'
-import { parseRulesCSV, parseCartCSV } from '../engine/csvParser.js'
+import { parseRulesCSV, parseCartCSV } from '../input/csvParser.js'
 
 const sample = (name) => readFileSync(new URL(`../../sample-data/${name}`, import.meta.url), 'utf8')
 const RULES = parseRulesCSV(sample('rules.csv')).data

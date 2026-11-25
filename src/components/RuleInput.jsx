@@ -22,7 +22,7 @@
  */
 
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { parseRuleInstruction, MAX_TEXT_LENGTH } from '../parseRuleClient.js'
+import { parseRuleInstruction, MAX_TEXT_LENGTH } from '../input/parseRuleClient.js'
 import { previewRule } from '../engine/rulePreview.js'
 import { findDuplicateOffer, duplicateOfferMessage } from '../appRules.js'
 import {

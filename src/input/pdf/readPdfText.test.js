@@ -13,12 +13,12 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { readPdfText, looksLikePdf, PDF_READ_MESSAGES, MAX_PDF_BYTES, MAX_PDF_PAGES } from './readPdfText.js'
-import { parseCartPdf, PDF_FILE_ERRORS } from '../engine/pdfCartParser.js'
-import { parseCartCSV, parseRulesCSV } from '../engine/csvParser.js'
-import { priceCart } from '../engine/discountEngine.js'
-import { buildPdf, fixtureFiles } from '../../scripts/pdfFixtures.mjs'
+import { parseCartPdf, PDF_FILE_ERRORS } from '../pdfCartParser.js'
+import { parseCartCSV, parseRulesCSV } from '../csvParser.js'
+import { priceCart } from '../../engine/discountEngine.js'
+import { buildPdf, fixtureFiles } from '../../../scripts/pdfFixtures.mjs'
 
-const file = (path) => new Uint8Array(readFileSync(new URL(`../../${path}`, import.meta.url)))
+const file = (path) => new Uint8Array(readFileSync(new URL(`../../../${path}`, import.meta.url)))
 const fixture = (name) => file(`test-fixtures/pdf/${name}`)
 
 /** Reads and parses a file the way the app will: bytes → text → CartItems. */
@@ -112,13 +112,13 @@ describe('readPdfText: the text and its positions', () => {
 describe('real PDFs, end to end (bytes → text → CartItems)', () => {
   test('the sample PDF gives exactly the same cart as the sample CSV', async () => {
     const fromPdf = await cartFromPdf(file('sample-data/cart.pdf'))
-    const fromCsv = parseCartCSV(readFileSync(new URL('../../sample-data/cart.csv', import.meta.url), 'utf8'))
+    const fromCsv = parseCartCSV(readFileSync(new URL('../../../sample-data/cart.csv', import.meta.url), 'utf8'))
     assert.deepEqual(fromPdf, { data: fromCsv.data, errors: [], notes: [], fileError: null })
   })
 
   test('the sample PDF with the sample rules prices to Rs.5,339', async () => {
     const { data } = await cartFromPdf(file('sample-data/cart.pdf'))
-    const rules = parseRulesCSV(readFileSync(new URL('../../sample-data/rules.csv', import.meta.url), 'utf8'))
+    const rules = parseRulesCSV(readFileSync(new URL('../../../sample-data/rules.csv', import.meta.url), 'utf8'))
     const priced = priceCart(data, rules.data)
     assert.deepEqual(priced.items.map((r) => [r.itemId, r.finalPrice, r.reasoning]), [
       ['ITEM-01', 1104, 'Platform offer: 15% off'],
@@ -191,7 +191,7 @@ describe('real PDFs, end to end (bytes → text → CartItems)', () => {
     //   Wall Shelf     599 - 15% =  509.15 ->  509 (x3 = 1527)
     //   Bed Sheet Set  849 - 150 = 699, - 10% = 629.1 -> 629 (x2 = 1258)
     //   Subtotal 3889 is below the Rs.4,000 cart-offer minimum, so no cart offer
-    const rules = parseRulesCSV(readFileSync(new URL('../../sample-data/rules.csv', import.meta.url), 'utf8'))
+    const rules = parseRulesCSV(readFileSync(new URL('../../../sample-data/rules.csv', import.meta.url), 'utf8'))
     const priced = priceCart(result.data, rules.data)
     assert.deepEqual(priced.items.map((r) => r.finalPrice), [1104, 509, 509, 509, 629, 629])
     assert.equal(priced.subtotal, 3889)

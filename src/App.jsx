@@ -35,9 +35,9 @@ import { uploadStatus, progressSteps, plural } from './components/loadStatus.js'
 import {
   combineRules, canCalculate as hasEnoughToCalculate, computeResults, addConfirmedRule, removeConfirmedRule, restoreConfirmedRule,
 } from './appRules.js'
-import { INITIAL_RULES_STATE, readRulesFile, applyRulesLoad, undoRulesLoad, withdrawRulesUndo } from './rulesLoad.js'
-import { INITIAL_CART_STATE, readCartFile, applyCartLoad, undoCartLoad } from './cartLoad.js'
-import { loadPdfjs } from './pdf/loadPdfjs.js'
+import { INITIAL_RULES_STATE, readRulesFile, applyRulesLoad, undoRulesLoad, withdrawRulesUndo } from './input/rulesLoad.js'
+import { INITIAL_CART_STATE, readCartFile, applyCartLoad, undoCartLoad } from './input/cartLoad.js'
+import { loadPdfjs } from './input/pdf/loadPdfjs.js'
 import { checkoutSummary, partialCartWarning } from './checkout/checkoutSummary.js'
 import {
   appliedOfferBreakdown, itemOfferOptions, previewOffer, openPreview, closePreview, currentPreview,

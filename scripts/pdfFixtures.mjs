@@ -5,7 +5,7 @@
  * no dependencies: each file is written directly in PDF syntax, using the
  * Helvetica font every PDF reader has built in. The output is byte-for-byte
  * the same on every run, so the committed files can be checked against it
- * (see src/pdf/pdfFixtures.test.js).
+ * (see src/input/pdf/readPdfText.test.js).
  *
  * Run `node scripts/make-sample-pdfs.mjs` to write the files.
  *

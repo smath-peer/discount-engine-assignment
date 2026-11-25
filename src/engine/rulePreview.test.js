@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { previewRule } from './rulePreview.js'
 import { priceCart } from './discountEngine.js'
-import { parseRulesCSV, parseCartCSV } from './csvParser.js'
+import { parseRulesCSV, parseCartCSV } from '../input/csvParser.js'
 
 const readSample = (name) => readFileSync(new URL(`../../sample-data/${name}`, import.meta.url), 'utf8')
 const SAMPLE_RULES = parseRulesCSV(readSample('rules.csv')).data
