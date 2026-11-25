@@ -5,6 +5,8 @@ final price, the offer behind it, any cart-level offer and the final cart total.
 described in plain language: the app's server sends the sentence to an external model (Groq),
 validates the rule it proposes, and the user reviews and confirms it before it takes effect.
 
+**Live demo:** https://discount-engine-assignment-gold.vercel.app/
+
 | Assignment task | Status |
 |---|---|
 | Foundation: base engine | Done; matches the expected results below |
