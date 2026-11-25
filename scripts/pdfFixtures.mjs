@@ -305,13 +305,31 @@ export function fixtureFiles() {
     },
     {
       path: 'test-fixtures/pdf/extra-columns.pdf',
-      about: 'The brief cart with S.No and Qty columns that are not part of a CartItem',
+      about: 'The brief cart with S.No and Qty columns (quantity 1 on every row)',
       bytes: buildPdf({
         pages: [cartPage({
           heading: BRIEF_HEADING,
           header: ['S.No', 'Product', 'Brand', 'Platform', 'Qty', 'Base Price'],
           columnX: [45, 85, 215, 325, 425, 470],
           rows: BRIEF_ROWS.map(([product, brand, platform, price], i) => [String(i + 1), product, brand, platform, '1', price]),
+        })],
+      }),
+    },
+    {
+      path: 'test-fixtures/pdf/quantity.pdf',
+      about: 'A Qty column: quantity 1, quantity 3, quantity 2, a blank quantity and an unreadable one',
+      bytes: buildPdf({
+        pages: [cartPage({
+          heading: BRIEF_HEADING,
+          header: ['Product', 'Brand', 'Platform', 'Qty', 'Base Price'],
+          columnX: [50, 190, 310, 420, 470],
+          rows: [
+            ['Cushion Cover', 'Natura Casa', 'Amazon India', '1', 'Rs.1,299'],
+            ['Wall Shelf', 'LivSpace Pro', 'Amazon India', '3', 'Rs.599'],
+            ['Bed Sheet Set', 'Natura Casa', 'Flipkart', '2', 'Rs.849'],
+            ['Cutting Board', 'Nordic Basics', 'Amazon India', '', 'Rs.449'],
+            ['Desk Organiser', 'Nordic Basics', 'Flipkart', 'two', 'Rs.899'],
+          ],
         })],
       }),
     },

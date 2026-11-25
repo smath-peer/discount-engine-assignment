@@ -30,11 +30,10 @@ import CartItemList from './components/CartItemList.jsx'
 import CheckoutSummary from './components/CheckoutSummary.jsx'
 import PayBar from './components/PayBar.jsx'
 import DataTable from './components/DataTable.jsx'
-import ErrorBanner from './components/ErrorBanner.jsx'
 import RuleInput from './components/RuleInput.jsx'
 import { uploadStatus, progressSteps, plural } from './components/loadStatus.js'
-import { parseRulesCSV } from './engine/csvParser.js'
-import { combineRules, canCalculate as hasEnoughToCalculate, computeResults, addConfirmedRule, withoutConfirmedIdClashes } from './appRules.js'
+import { combineRules, canCalculate as hasEnoughToCalculate, computeResults, addConfirmedRule } from './appRules.js'
+import { INITIAL_RULES_STATE, readRulesFile, applyRulesLoad, undoRulesLoad, withdrawRulesUndo } from './rulesLoad.js'
 import { INITIAL_CART_STATE, readCartFile, applyCartLoad, undoCartLoad } from './cartLoad.js'
 import { loadPdfjs } from './pdf/loadPdfjs.js'
 import { checkoutSummary, partialCartWarning } from './checkout/checkoutSummary.js'
@@ -122,9 +121,15 @@ function SectionLabel({ id, number, children }) {
 // ── Component ────────────────────────────────────────────────────
 
 export default function App() {
-  const [csvRules, setCsvRules]     = useState([])
-  const [rulesErrors, setRulesErr]  = useState([])
-  const [rulesFileName, setRulesFileName] = useState('')
+  // The CSV offers in use and the offers Undo would restore (see rulesLoad.js)
+  const [rulesState, setRulesState] = useState(INITIAL_RULES_STATE)
+  const { rules: csvRules, errors: rulesErrors, fileName: rulesFileName } = rulesState.current
+  // What the last rules upload or Undo did, shown under the rules file row
+  const [rulesNotice, setRulesNotice] = useState(null)
+  const [rulesBusyFile, setRulesBusyFile] = useState('')
+  const rulesRequest = useRef(0)
+  const rulesNoticeTitle = useRef(null)
+  const [focusRulesNotice, setFocusRulesNotice] = useState(false)
 
   // Rules added in plain language; only ever added to by a confirmation
   const [confirmedRules, setConfirmedRules] = useState([])
@@ -207,21 +212,43 @@ export default function App() {
 
   // ── Handlers ──
 
-  function handleRulesLoad(csvText, fileName) {
-    const { data, errors } = parseRulesCSV(csvText)
-    // Replaces only the CSV rules; confirmed plain-language rules stay
-    const { rules, errors: clashErrors } = withoutConfirmedIdClashes(data, confirmedRules)
-    setCsvRules(rules)
-    setRulesErr([...errors, ...clashErrors])
-    setRulesFileName(fileName)
-  }
-
-  async function handleRulesSelect(file) {
-    handleRulesLoad(await file.text(), file.name)
-  }
-
   // Prices are already on screen, so a cart change re-prices them visibly
   const pricesShown = hasCalculated && activeRules.length > 0
+
+  /**
+   * Reads a rules CSV. A file with usable rules replaces the CSV offers (with
+   * Undo); a file without any keeps the current offers. Plain-language offers
+   * always stay. See rulesLoad.js.
+   */
+  async function handleRulesSelect(file) {
+    const request = ++rulesRequest.current
+    setRulesBusyFile(file.name)
+    setRulesNotice(null) // an older Undo must not be pressed while the new file is read
+    const result = await readRulesFile(file, confirmedRules)
+    if (request !== rulesRequest.current) return // a newer file was chosen meanwhile
+
+    // Results are derived from the rules in use, so after a replacement prices
+    // are on screen (and recalculated) exactly when Calculate was used and a cart is loaded
+    const pricesShownAfter = hasCalculated && cartItems.length > 0
+    const { state, notice } = applyRulesLoad(rulesState, result, { fileName: file.name, pricesShownAfter })
+    setRulesState(state)
+    setRulesNotice(notice)
+    setRulesBusyFile('')
+  }
+
+  function handleRulesUndo() {
+    const undone = undoRulesLoad(rulesState, { pricesShownAfter: hasCalculated && cartItems.length > 0 })
+    if (!undone) return
+    setRulesState(undone.state)
+    setRulesNotice(undone.notice)
+    setFocusRulesNotice(true) // the Undo button is gone, so focus moves to the outcome
+  }
+
+  useEffect(() => {
+    if (!focusRulesNotice) return
+    rulesNoticeTitle.current?.focus()
+    setFocusRulesNotice(false)
+  }, [focusRulesNotice])
 
   /**
    * Reads a cart CSV or PDF. A file with usable rows replaces the cart (with
@@ -304,6 +331,9 @@ export default function App() {
     const result = addConfirmedRule(csvRules, confirmedRules, rule)
     if (result.error) return // RuleInput validated it already; never add an invalid rule
     setConfirmedRules(result.confirmedRules)
+    // Its ID was chosen to avoid the offers in use, so the replaced offers can no longer come back
+    setRulesState(withdrawRulesUndo)
+    setRulesNotice((notice) => (notice?.canUndo ? { ...notice, canUndo: false } : notice))
   }
 
   const canCalculate = hasEnoughToCalculate(activeRules, cartItems)
@@ -422,9 +452,21 @@ export default function App() {
                   fileName={rulesFileName}
                   detail={rulesDetail}
                   status={rulesStatus}
+                  busyFileName={rulesBusyFile}
                   onSelect={handleRulesSelect}
                 />
-                <ErrorBanner errors={rulesErrors} fileName={rulesFileName} loadedCount={csvRules.length} />
+                {/* A polite live region: the outcome is announced without moving focus */}
+                <div aria-live="polite" className="cart-notice-region">
+                  {rulesBusyFile && <p className="status-line">Reading {rulesBusyFile}…</p>}
+                  {rulesNotice && (
+                    <CartLoadNotice
+                      notice={rulesNotice}
+                      onUndo={handleRulesUndo}
+                      titleRef={rulesNoticeTitle}
+                      undoLabel="restore the previous offers"
+                    />
+                  )}
+                </div>
 
                 <div className="active-offers">
                   <div className="list-head">

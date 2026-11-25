@@ -29,7 +29,8 @@ import { validateCartItem } from './cartItemValidator.js'
  *   - validateRule (shared with the natural-language rule input) decides
  *     whether the typed rule is allowed: valid scope and type, positive
  *     value, the 100% cap, cart-rule constraints.
- * The parser then puts the row's own rule_id back on the validated rule.
+ * The parser then skips duplicate rules (see "Duplicate rules" below) and
+ * puts the row's own rule_id back on the validated rule.
  */
 export function parseRulesCSV(csvText) {
   const { data: rows, errors: parseErrors } = Papa.parse(csvText.trim(), {
@@ -44,6 +45,8 @@ export function parseRulesCSV(csvText) {
 
   const data = []
   const errors = []
+  const seenIds = new Map() // rule_id key → { rowNum, terms } of the row that kept it
+  const seenTerms = new Map() // terms key → { rowNum, ruleId }
 
   rows.forEach((row, i) => {
     const rowNum = i + 2 // account for header row
@@ -97,11 +100,57 @@ export function parseRulesCSV(csvText) {
       return
     }
 
-    // ── Step 4: put the row's own ID back (the validator drops it) ──
-    data.push({ ruleId: row.rule_id.trim(), ...rule })
+    // ── Step 4: duplicates (see the policy above duplicateMessage) ──
+    const ruleId = row.rule_id.trim()
+    const duplicate = duplicateMessage(ruleId, rule, seenIds, seenTerms)
+    if (duplicate) {
+      errors.push(`Row ${rowNum}: ${duplicate}`)
+      return
+    }
+    seenIds.set(ruleIdKey(ruleId), { rowNum, terms: termsKey(rule) })
+    seenTerms.set(termsKey(rule), { rowNum, ruleId })
+
+    // ── Step 5: put the row's own ID back (the validator drops it) ──
+    data.push({ ruleId, ...rule })
   })
 
   return { data, errors }
+}
+
+// ── Duplicate rules ──────────────────────────────────────────────
+//
+// The app tells offers apart by rule_id (the applied-offer breakdown, the
+// offer comparison and previews all look rules up by it), and the engine
+// applies every matching stackable rule, so a repeated row would take the
+// same discount twice. Within one rules file:
+//   - the first row with a given rule_id or a given set of terms is kept;
+//   - a later row reusing that rule_id is skipped, whether its terms are the
+//     same (a repeated row) or different (two offers sharing one ID);
+//   - a later row with exactly the same terms under another rule_id is
+//     skipped too, so the same offer can never apply twice.
+// Offers that differ in any term (scope, brand or platform, type, value,
+// stackable, minimum) are kept. Every skipped row gets its own message.
+// rule_id is compared ignoring case and outer spaces, as everywhere else.
+
+const ruleIdKey = (id) => id.trim().toUpperCase()
+
+/** The terms that decide what a rule does; brand and platform are compared as the engine matches them. */
+const termsKey = (rule) =>
+  JSON.stringify([rule.scope, rule.appliesTo.trim().toLowerCase(), rule.type, rule.value, rule.stackable, rule.minCartValue])
+
+/** Why this rule is a duplicate of an earlier row, or null if it is not one. */
+function duplicateMessage(ruleId, rule, seenIds, seenTerms) {
+  const sameId = seenIds.get(ruleIdKey(ruleId))
+  if (sameId) {
+    return sameId.terms === termsKey(rule)
+      ? `duplicate of row ${sameId.rowNum} (same rule_id "${ruleId}" and same terms), skipped so the discount is not applied twice`
+      : `rule_id "${ruleId}" is already used by row ${sameId.rowNum} with different terms, so this row was skipped. Give each offer its own rule_id`
+  }
+  const sameTerms = seenTerms.get(termsKey(rule))
+  if (sameTerms) {
+    return `same offer as row ${sameTerms.rowNum} (${sameTerms.ruleId}), skipped so the discount is not applied twice`
+  }
+  return null
 }
 
 /**

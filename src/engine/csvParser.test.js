@@ -502,3 +502,83 @@ describe('parseCartCSV: strict base_price (shared validator)', () => {
     assert.deepEqual(data, [{ itemId: 'ITEM-01', product: 'Lamp', brand: 'Acme', platform: 'Noon', basePrice: 1050 }])
   })
 })
+
+describe('parseRulesCSV: duplicate rules', () => {
+  test('an identical repeated row is skipped, so a stackable discount is applied once', () => {
+    const { data, errors } = parseRows(
+      'RULE-03,platform,Flipkart,percentage,10,true,',
+      'RULE-03,platform,Flipkart,percentage,10,true,',
+    )
+    assert.deepEqual(data.map((r) => r.ruleId), ['RULE-03'])
+    assert.deepEqual(errors, [
+      'Row 3: duplicate of row 2 (same rule_id "RULE-03" and same terms), skipped so the discount is not applied twice',
+    ])
+    // Rs.1,000 on Flipkart: 10% once is Rs.900 (it was Rs.810 when the row applied twice)
+    const priced = priceCart([{ itemId: 'I1', product: 'P', brand: 'B', platform: 'Flipkart', basePrice: 1000 }], data)
+    assert.equal(priced.finalTotal, 900)
+    assert.deepEqual(priced.items[0].appliedRules, ['RULE-03'])
+  })
+
+  test('a repeated stackable cart rule is applied once', () => {
+    const { data, errors } = parseRows('C1,cart,,percentage,10,true,1000', 'C1,cart,,percentage,10,true,1000')
+    assert.equal(errors.length, 1)
+    const priced = priceCart([{ itemId: 'I1', product: 'P', brand: 'B', platform: 'X', basePrice: 2000 }], data)
+    assert.equal(priced.finalTotal, 1800)
+    assert.equal(priced.cartOffers.length, 1)
+  })
+
+  test('a rule_id reused with different terms keeps the first row and explains the conflict', () => {
+    const { data, errors } = parseRows(
+      'R1,platform,Amazon India,percentage,15,false,',
+      'R1,brand,Natura Casa,flat,50,true,',
+    )
+    assert.deepEqual(data.map((r) => [r.ruleId, r.scope]), [['R1', 'platform']])
+    assert.deepEqual(errors, [
+      'Row 3: rule_id "R1" is already used by row 2 with different terms, so this row was skipped. Give each offer its own rule_id',
+    ])
+  })
+
+  test('rule_id is compared ignoring case and outer spaces', () => {
+    const { data, errors } = parseRows('RULE-01,platform,Amazon India,percentage,15,false,', ' rule-01 ,brand,Natura Casa,flat,150,false,')
+    assert.equal(data.length, 1)
+    assert.match(errors[0], /^Row 3: rule_id "rule-01" is already used by row 2/)
+  })
+
+  test('the same terms under another rule_id are skipped, matching brand and platform as the engine does', () => {
+    const { data, errors } = parseRows(
+      'RULE-03,platform,Flipkart,percentage,10,true,',
+      'RULE-07,platform, flipkart ,Percentage,10,yes,',
+    )
+    assert.deepEqual(data.map((r) => r.ruleId), ['RULE-03'])
+    assert.deepEqual(errors, ['Row 3: same offer as row 2 (RULE-03), skipped so the discount is not applied twice'])
+  })
+
+  test('distinct offers are all kept, even when they share a brand, platform or value', () => {
+    const { data, errors } = parseRows(
+      'A,brand,Natura Casa,percentage,10,false,',
+      'B,brand,Natura Casa,percentage,15,false,', // another value
+      'C,brand,Natura Casa,percentage,10,true,', // stacks
+      'D,brand,Natura Casa,flat,10,false,', // another type
+      'E,platform,Natura Casa,percentage,10,false,', // another scope
+      'F,brand,LivSpace Pro,percentage,10,false,', // another brand
+      'G,cart,,percentage,10,false,4000',
+      'H,cart,,percentage,10,false,5000', // another minimum
+    )
+    assert.deepEqual(errors, [])
+    assert.deepEqual(data.map((r) => r.ruleId), ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'])
+  })
+
+  test('a rejected row does not block a later valid row with the same rule_id', () => {
+    const { data, errors } = parseRows('R1,brand,Natura Casa,percentage,150,false,', 'R1,brand,Natura Casa,percentage,15,false,')
+    assert.deepEqual(data.map((r) => [r.ruleId, r.value]), [['R1', 15]])
+    assert.equal(errors.length, 1)
+    assert.match(errors[0], /^Row 2: /)
+  })
+
+  test('the sample rules have no duplicates, so the sample cart still totals Rs.5,339', () => {
+    const rules = parseRulesCSV(readFileSync(new URL('../../sample-data/rules.csv', import.meta.url), 'utf8'))
+    const cart = parseCartCSV(readFileSync(new URL('../../sample-data/cart.csv', import.meta.url), 'utf8'))
+    assert.deepEqual(rules.errors, [])
+    assert.equal(priceCart(cart.data, rules.data).finalTotal, 5339)
+  })
+})

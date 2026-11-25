@@ -9,8 +9,9 @@
  *   1. Group text into lines by vertical position.
  *   2. Find the header line holding Product, Brand, Platform and Base Price
  *      (any order, any case). Text above it is ignored (titles, order number).
- *   3. Give every piece of text below it to the column it sits under. Other
- *      columns in the header (such as "S.No" or "Qty") are ignored.
+ *   3. Give every piece of text below it to the column it sits under. An
+ *      optional "Qty" (or "Quantity") column is read too; other columns in
+ *      the header (such as "S.No") are ignored.
  *   4. Read each line as a row:
  *        - text in two or more columns starts a new row;
  *        - text in one column, just below a row and closer than the usual
@@ -21,15 +22,17 @@
  *          (notes, page numbers) are ignored;
  *        - a "Total" line with no brand or platform is ignored with a note.
  *   5. Check each row with the shared validateCartItem (the same rules as
- *      the CSV cart) and number the accepted rows ITEM-01, ITEM-02, …
+ *      the CSV cart) and its quantity (see "Quantity" below), then add one
+ *      cart item per unit, numbered ITEM-01, ITEM-02, … in table order.
  *
  * Later pages continue the table: a repeated header there is used for that
  * page's columns; without one, the previous page's columns are kept.
  *
  * Output: { data, errors, notes, fileError }
- *   data:      CartItem[] in table order
+ *   data:      CartItem[] in table order, one per unit, each with its own itemId
  *   errors:    one message per skipped row, e.g. 'Row 3 (Wall Shelf): missing Brand, Platform'
- *   notes:     lines that were deliberately not read as items
+ *   notes:     lines that were deliberately not read as items, and rows
+ *              added as several items because of their quantity
  *   fileError: null, or a message when no usable table exists at all
  */
 
@@ -48,7 +51,25 @@ export const PDF_FILE_ERRORS = Object.freeze({
   no_rows: 'The cart table in this PDF has no item rows.',
 })
 
-const LABEL = Object.fromEntries(PDF_CART_COLUMNS.map((c) => [c.field, c.label]))
+const LABEL = { ...Object.fromEntries(PDF_CART_COLUMNS.map((c) => [c.field, c.label])), quantity: 'Qty' }
+
+// ── Quantity ─────────────────────────────────────────────────────
+//
+// A cart item is one unit at one price, and the engine prices each item on
+// its own (a CSV cart repeats a row to buy two). So a row with Qty 3 becomes
+// three cart items, each priced, discounted and rounded exactly as a single
+// item, and each with its own itemId. Base Price is read as the unit price.
+//   - No Qty column: every row is one unit, as before.
+//   - A Qty column with a blank cell: the row is skipped ("missing Qty");
+//     guessing 1 could under-price the cart.
+//   - Qty must be a whole number from 1 to MAX_PDF_QUANTITY; otherwise the
+//     row is skipped with the reason. The cap keeps the cart readable, as
+//     every unit is shown as its own item.
+
+/** The header labels that mark the optional quantity column. */
+const QUANTITY_LABELS = ['qty', 'qty.', 'quantity']
+
+export const MAX_PDF_QUANTITY = 20
 const TOTAL_LINE = /^(?:sub[\s-]?total|grand total|order total|net total|total|amount payable)\b/i
 
 const normalise = (text) => text.replace(/\s+/g, ' ').trim().toLowerCase()
@@ -113,6 +134,13 @@ function headerColumns(line) {
     for (let k = found.from; k <= found.to; k++) used.add(k)
     columns.push({ field, left: found.left, right: found.right })
   }
+  for (const label of QUANTITY_LABELS) {
+    const found = findLabel(line.items, label, used)
+    if (!found) continue
+    for (let k = found.from; k <= found.to; k++) used.add(k)
+    columns.push({ field: 'quantity', left: found.left, right: found.right })
+    break
+  }
   line.items.forEach((item, k) => {
     if (!used.has(k)) columns.push({ field: null, left: item.x, right: item.x + item.width })
   })
@@ -152,9 +180,10 @@ function tableLines(pages) {
     if (!columns) continue // the table has not started yet
 
     const below = headerIndex >= 0 ? lines.slice(headerIndex + 1) : lines
+    const quantityColumn = columns.some((column) => column.field === 'quantity')
     const pageLines = below
       .filter((line) => !headerColumns(line)) // a header repeated lower down
-      .map((line) => ({ y: line.y, fontSize: line.fontSize, cells: cellsOf(line, columns) }))
+      .map((line) => ({ y: line.y, fontSize: line.fontSize, cells: cellsOf(line, columns), quantityColumn }))
       .filter((line) => cellCount(line.cells) > 0) // text only in ignored columns
     result.push({ pageNumber: page.pageNumber, lines: pageLines })
   }
@@ -184,7 +213,7 @@ function rowsOf(tablePages) {
       const count = cellCount(line.cells)
       const limit = rowPitch ? 0.75 * rowPitch : 1.3 * line.fontSize
       const wraps =
-        count === 1 && !line.cells.basePrice && previous && previous.y - line.y <= limit && entries.length > 0
+        count === 1 && !line.cells.basePrice && !line.cells.quantity && previous && previous.y - line.y <= limit && entries.length > 0
 
       if (wraps) {
         const row = entries[entries.length - 1]
@@ -193,7 +222,7 @@ function rowsOf(tablePages) {
         }
         previous = line
       } else {
-        entries.push({ kind: count >= 2 ? 'row' : 'single', cells: { ...line.cells } })
+        entries.push({ kind: count >= 2 ? 'row' : 'single', cells: { ...line.cells }, quantityColumn: line.quantityColumn })
         previous = line
       }
     }
@@ -208,15 +237,32 @@ function rowsOf(tablePages) {
 // ── 5. Validation ────────────────────────────────────────────────
 
 function rowMessage(rowNumber, cells, errors) {
-  const name = cells.product ? ` (${cells.product})` : ''
   const parts = []
   const missing = errors.filter((e) => e.code === 'missing').map((e) => LABEL[e.field])
   if (missing.length > 0) parts.push(`missing ${missing.join(', ')}`)
   for (const error of errors) {
     if (error.code === 'price_format') parts.push(`Base Price "${error.received}" is not a readable amount (for example Rs.1,299)`)
     if (error.code === 'price_too_small') parts.push(`Base Price must be at least Rs.1, got "${error.received}"`)
+    if (error.code === 'quantity_format') {
+      parts.push(`Qty must be a whole number from 1 to ${MAX_PDF_QUANTITY}, got "${error.received}"`)
+    }
   }
-  return `Row ${rowNumber}${name}: ${parts.join('; ')}`
+  return `${rowLabel(rowNumber, cells)}: ${parts.join('; ')}`
+}
+
+const rowLabel = (rowNumber, cells) => `Row ${rowNumber}${cells.product ? ` (${cells.product})` : ''}`
+
+/**
+ * The row's quantity: { quantity } or { error } (in validateCartItem's error
+ * shape). Without a Qty column every row is 1 unit.
+ */
+function readQuantity(cells, quantityColumn) {
+  if (!quantityColumn) return { quantity: 1 }
+  const text = (cells.quantity ?? '').trim()
+  if (text === '') return { error: { field: 'quantity', code: 'missing' } }
+  const quantity = /^\d+$/.test(text) ? Number(text) : NaN
+  if (!(quantity >= 1 && quantity <= MAX_PDF_QUANTITY)) return { error: { field: 'quantity', code: 'quantity_format', received: text } }
+  return { quantity }
 }
 
 const itemId = (n) => `ITEM-${String(n).padStart(2, '0')}`
@@ -231,7 +277,7 @@ export function parseCartPdf(pages) {
   const notes = []
   let rowNumber = 0
 
-  for (const { cells } of rowsOf(table.pages)) {
+  for (const { cells, quantityColumn } of rowsOf(table.pages)) {
     if (TOTAL_LINE.test(cells.product ?? '') && !cells.brand && !cells.platform) {
       const text = [cells.product, cells.basePrice].filter(Boolean).join(' ')
       notes.push(`The "${text}" line was not read as an item; totals are calculated from the items.`)
@@ -239,12 +285,19 @@ export function parseCartPdf(pages) {
     }
 
     rowNumber++
-    const { item, errors: rowErrors } = validateCartItem({ itemId: 'pending', ...cells })
+    const { quantity: _quantityText, ...itemCells } = cells
+    const { item, errors: itemErrors } = validateCartItem({ itemId: 'pending', ...itemCells })
+    const { quantity, error: quantityError } = readQuantity(cells, quantityColumn)
+    const rowErrors = quantityError ? [...itemErrors, quantityError] : itemErrors
     if (rowErrors.length > 0) {
       errors.push(rowMessage(rowNumber, cells, rowErrors))
       continue
     }
-    data.push({ ...item, itemId: itemId(data.length + 1) })
+    const first = data.length + 1
+    for (let unit = 0; unit < quantity; unit++) data.push({ ...item, itemId: itemId(data.length + 1) })
+    if (quantity > 1) {
+      notes.push(`${rowLabel(rowNumber, cells)}: quantity ${quantity}, added as ${quantity} items (${itemId(first)} to ${itemId(data.length)}).`)
+    }
   }
 
   if (rowNumber === 0) return { data: [], errors: [], notes, fileError: PDF_FILE_ERRORS.no_rows }

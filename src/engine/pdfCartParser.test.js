@@ -115,10 +115,10 @@ describe('parseCartPdf: finding the header', () => {
     assert.deepEqual(parseCartPdf([{ pageNumber: 1, items }]).data, [BRIEF_ITEMS[0]])
   })
 
-  test('extra columns such as S.No and Qty are ignored, not merged into a neighbour', () => {
+  test('an extra column such as S.No is ignored, not merged into a neighbour', () => {
     const items = [
-      text('S.No', 20, HEADER_Y), ...headerLine(), text('Qty', 420, HEADER_Y),
-      text('1', 22, 702), ...rowLine(BRIEF_ROWS[0], 702), text('2', 422, 702),
+      text('S.No', 20, HEADER_Y), ...headerLine(), text('Note', 420, HEADER_Y),
+      text('1', 22, 702), ...rowLine(BRIEF_ROWS[0], 702), text('gift', 422, 702),
     ]
     assert.deepEqual(parseCartPdf([{ pageNumber: 1, items }]).data, [BRIEF_ITEMS[0]])
   })
@@ -303,5 +303,67 @@ describe('parseCartPdf: several pages', () => {
     const ids = parseCartPdf(pages).data.map((item) => item.itemId)
     assert.equal(ids.length, 101)
     assert.deepEqual([ids[0], ids[98], ids[100]], ['ITEM-01', 'ITEM-99', 'ITEM-101'])
+  })
+})
+
+// ── Quantity ─────────────────────────────────────────────────────
+
+describe('parseCartPdf: the Qty column', () => {
+  /** A page with S.No and Qty columns; rows are [product, brand, platform, price, qty]. */
+  const QTY_X = 420
+  const qtyPage = (rows, { label = 'Qty' } = {}) => ({
+    pageNumber: 1,
+    items: [
+      text('S.No', 20, HEADER_Y), ...headerLine(), text(label, QTY_X, HEADER_Y),
+      ...rows.flatMap((cells, i) => {
+        const y = HEADER_Y - ROW_GAP * (i + 1)
+        return [text(String(i + 1), 22, y), ...rowLine(cells.slice(0, 4), y), ...(cells[4] ? [text(cells[4], QTY_X + 2, y)] : [])]
+      }),
+    ],
+  })
+
+  test('quantity 1 gives one item, exactly as without the column', () => {
+    const result = parseCartPdf([qtyPage([[...BRIEF_ROWS[0], '1']])])
+    assert.deepEqual(result, { data: [BRIEF_ITEMS[0]], errors: [], notes: [], fileError: null })
+  })
+
+  test('quantity 3 gives three items with their own IDs, and a note says so', () => {
+    const result = parseCartPdf([qtyPage([[...BRIEF_ROWS[0], '1'], [...BRIEF_ROWS[2], '3'], [...BRIEF_ROWS[1], '1']])])
+    assert.deepEqual(result.data.map((item) => item.itemId), ['ITEM-01', 'ITEM-02', 'ITEM-03', 'ITEM-04', 'ITEM-05'])
+    assert.deepEqual(result.data.map((item) => item.product), [
+      'Cushion Cover', 'Wall Shelf', 'Wall Shelf', 'Wall Shelf', 'Bed Sheet Set',
+    ])
+    assert.equal(new Set(result.data.map((item) => item.itemId)).size, 5)
+    assert.deepEqual(result.errors, [])
+    assert.deepEqual(result.notes, ['Row 2 (Wall Shelf): quantity 3, added as 3 items (ITEM-02 to ITEM-04).'])
+  })
+
+  test('"Quantity" and "Qty." headers are read too', () => {
+    for (const label of ['Quantity', 'Qty.', 'QTY']) {
+      assert.equal(parseCartPdf([qtyPage([[...BRIEF_ROWS[0], '2']], { label })]).data.length, 2, label)
+    }
+  })
+
+  test('a blank quantity skips the row instead of guessing 1', () => {
+    const result = parseCartPdf([qtyPage([[...BRIEF_ROWS[0], '1'], [...BRIEF_ROWS[2], '']])])
+    assert.deepEqual(result.data, [BRIEF_ITEMS[0]])
+    assert.deepEqual(result.errors, ['Row 2 (Wall Shelf): missing Qty'])
+  })
+
+  test('an unreadable or out-of-range quantity skips the row with the reason', () => {
+    for (const qty of ['0', '-1', '1.5', 'two', '21', '2 pcs']) {
+      const result = parseCartPdf([qtyPage([[...BRIEF_ROWS[2], qty]])])
+      assert.deepEqual(result.data, [], qty)
+      assert.deepEqual(result.errors, [`Row 1 (Wall Shelf): Qty must be a whole number from 1 to 20, got "${qty}"`], qty)
+    }
+  })
+
+  test('the largest quantity (20) is accepted', () => {
+    assert.equal(parseCartPdf([qtyPage([[...BRIEF_ROWS[2], '20']])]).data.length, 20)
+  })
+
+  test('a quantity problem is reported together with the other problems in its row', () => {
+    const result = parseCartPdf([qtyPage([['Wall Shelf', '', 'Amazon India', 'Rs.599', 'x']])])
+    assert.deepEqual(result.errors, ['Row 1 (Wall Shelf): missing Brand; Qty must be a whole number from 1 to 20, got "x"'])
   })
 })

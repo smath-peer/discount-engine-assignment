@@ -5,10 +5,12 @@
  * items were accepted, every skipped row with its reason, any notes, and an
  * Undo button after a replacement. The wording comes from applyCartLoad and
  * undoCartLoad (cartLoad.js); this component only displays it.
+ * The rules upload uses it too, with wording from rulesLoad.js.
  *
  * Props:
  *   notice   — { tone, title, lines, skipped, notes, canUndo }
  *   onUndo   — called when Undo is pressed
+ *   undoLabel — what Undo restores, read by screen readers (default: the previous cart)
  *   titleRef — lets the parent move focus to the title (after Undo removes the button)
  *
  * The parent places it inside a polite live region, so screen readers hear
@@ -17,7 +19,7 @@
 
 const SYMBOL = { success: '✓', warning: '!', danger: '!' }
 
-export default function CartLoadNotice({ notice, onUndo, titleRef }) {
+export default function CartLoadNotice({ notice, onUndo, titleRef, undoLabel = 'restore the previous cart' }) {
   const { tone, title, lines, skipped, notes, canUndo } = notice
   const longList = skipped.length > 6
 
@@ -40,7 +42,7 @@ export default function CartLoadNotice({ notice, onUndo, titleRef }) {
         {canUndo && (
           <div className="alert-actions">
             <button type="button" className="btn secondary sm" onClick={onUndo}>
-              Undo<span className="sr-only">: restore the previous cart</span>
+              Undo<span className="sr-only">: {undoLabel}</span>
             </button>
           </div>
         )}

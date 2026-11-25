@@ -163,6 +163,38 @@ describe('real PDFs, end to end (bytes → text → CartItems)', () => {
     assert.equal(result.fileError, null)
   })
 
+  test('quantity.pdf adds one item per unit, skips blank and unreadable quantities, and prices every unit', async () => {
+    const result = await cartFromPdf(fixture('quantity.pdf'))
+    assert.deepEqual(result.data.map((item) => [item.itemId, item.product, item.basePrice]), [
+      ['ITEM-01', 'Cushion Cover', 1299],
+      ['ITEM-02', 'Wall Shelf', 599],
+      ['ITEM-03', 'Wall Shelf', 599],
+      ['ITEM-04', 'Wall Shelf', 599],
+      ['ITEM-05', 'Bed Sheet Set', 849],
+      ['ITEM-06', 'Bed Sheet Set', 849],
+    ])
+    assert.deepEqual(result.errors, [
+      'Row 4 (Cutting Board): missing Qty',
+      'Row 5 (Desk Organiser): Qty must be a whole number from 1 to 20, got "two"',
+    ])
+    assert.deepEqual(result.notes, [
+      'Row 2 (Wall Shelf): quantity 3, added as 3 items (ITEM-02 to ITEM-04).',
+      'Row 3 (Bed Sheet Set): quantity 2, added as 2 items (ITEM-05 to ITEM-06).',
+    ])
+
+    // Worked by hand with the sample rules: each unit is priced as a single item
+    //   Cushion Cover 1299 - 15% = 1104.15 -> 1104
+    //   Wall Shelf     599 - 15% =  509.15 ->  509 (x3 = 1527)
+    //   Bed Sheet Set  849 - 150 = 699, - 10% = 629.1 -> 629 (x2 = 1258)
+    //   Subtotal 3889 is below the Rs.4,000 cart-offer minimum, so no cart offer
+    const rules = parseRulesCSV(readFileSync(new URL('../../sample-data/rules.csv', import.meta.url), 'utf8'))
+    const priced = priceCart(result.data, rules.data)
+    assert.deepEqual(priced.items.map((r) => r.finalPrice), [1104, 509, 509, 509, 629, 629])
+    assert.equal(priced.subtotal, 3889)
+    assert.equal(priced.cartDiscount, 0)
+    assert.equal(priced.finalTotal, 3889)
+  })
+
   test('header-only.pdf reports no rows', async () => {
     assert.equal((await cartFromPdf(fixture('header-only.pdf'))).fileError, PDF_FILE_ERRORS.no_rows)
   })
