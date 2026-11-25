@@ -8,10 +8,6 @@ server checks it, and the user reviews and confirms it before it affects any pri
 - **Live demo:** https://discount-engine-assignment-gold.vercel.app/
 - **Video walkthrough (Loom):** _link to be added_
 
-> **Note:** the live demo runs the earlier Task 3 release. The improvements described below (safer
-> uploads with Undo, duplicate prevention, offer removal, manual entry and editing, and stricter AI
-> checks) are in this repository's latest code and will appear in the demo once it is redeployed.
-
 ## Assignment coverage
 
 | Part | What it adds | Status |
