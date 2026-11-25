@@ -17,6 +17,7 @@
 
 import Papa from 'papaparse'
 import { validateRule } from './discountRuleValidator.js'
+import { validateCartItem } from './cartItemValidator.js'
 
 /**
  * Parses the raw text of rules.csv into an array of DiscountRule objects.
@@ -131,9 +132,42 @@ function parseDecimal(text) {
   return Number.isFinite(number) ? number : null
 }
 
+// The cart.csv column for each CartItem field, used in error messages
+const CART_COLUMNS = {
+  itemId: 'item_id',
+  product: 'product',
+  brand: 'brand',
+  platform: 'platform',
+  basePrice: 'base_price',
+}
+
+/**
+ * Turns the shared validator's errors for one row into one CSV message, e.g.
+ *   Row 3: missing fields — brand
+ *   Row 4: base_price must be an amount in rupees such as 1299, 1,299 or Rs.1,299, got "abc"
+ */
+function cartRowMessage(rowNum, errors) {
+  const parts = []
+  const missing = errors.filter((e) => e.code === 'missing').map((e) => CART_COLUMNS[e.field])
+  if (missing.length > 0) parts.push(`missing fields — ${missing.join(', ')}`)
+  for (const error of errors) {
+    if (error.code === 'price_format') {
+      parts.push(`base_price must be an amount in rupees such as 1299, 1,299 or Rs.1,299, got "${error.received}"`)
+    }
+    if (error.code === 'price_too_small') {
+      parts.push(`base_price must be at least Rs.1, got "${error.received}"`)
+    }
+  }
+  return `Row ${rowNum}: ${parts.join('; ')}`
+}
+
 /**
  * Parses the raw text of cart.csv into an array of CartItem objects.
  * Returns { data, errors } where errors is an array of row-level issues.
+ *
+ * This parser handles the CSV itself (columns, row numbers, messages);
+ * validateCartItem (shared with the PDF parser) decides whether each row is
+ * usable, including the strict price check.
  */
 export function parseCartCSV(csvText) {
   const { data: rows, errors: parseErrors } = Papa.parse(csvText.trim(), {
@@ -150,33 +184,20 @@ export function parseCartCSV(csvText) {
   const errors = []
 
   rows.forEach((row, i) => {
-    const rowNum = i + 2
-    const missing = []
-
-    if (!row.item_id) missing.push('item_id')
-    if (!row.product) missing.push('product')
-    if (!row.brand) missing.push('brand')
-    if (!row.platform) missing.push('platform')
-    if (row.base_price === undefined || row.base_price === '') missing.push('base_price')
-
-    if (missing.length > 0) {
-      errors.push(`Row ${rowNum}: missing fields — ${missing.join(', ')}`)
-      return
-    }
-
-    const basePrice = parseFloat(row.base_price)
-    if (isNaN(basePrice) || basePrice <= 0) {
-      errors.push(`Row ${rowNum}: base_price must be a positive number, got "${row.base_price}"`)
-      return
-    }
-
-    data.push({
-      itemId: row.item_id.trim(),
-      product: row.product.trim(),
-      brand: row.brand.trim(),
-      platform: row.platform.trim(),
-      basePrice: Math.round(basePrice),
+    const rowNum = i + 2 // account for header row
+    const { item, errors: rowErrors } = validateCartItem({
+      itemId: row.item_id,
+      product: row.product,
+      brand: row.brand,
+      platform: row.platform,
+      basePrice: row.base_price,
     })
+
+    if (rowErrors.length > 0) {
+      errors.push(cartRowMessage(rowNum, rowErrors))
+      return
+    }
+    data.push(item)
   })
 
   return { data, errors }

@@ -418,3 +418,87 @@ describe('parseCartCSV (regression)', () => {
     })
   })
 })
+
+describe('parseCartCSV: strict base_price (shared validator)', () => {
+  const CART_HEADER = 'item_id,product,brand,platform,base_price'
+  const parseCart = (...rows) => parseCartCSV([CART_HEADER, ...rows].join('\n'))
+
+  test('comma-grouped and rupee-marked prices load at full value, not Rs.1', () => {
+    const { data, errors } = parseCart(
+      'ITEM-01,Cushion Cover,Natura Casa,Amazon India,"1,299"',
+      'ITEM-02,Bed Sheet Set,Natura Casa,Flipkart,Rs.849',
+      'ITEM-03,Wall Shelf,LivSpace Pro,Amazon India,"Rs.1,23,456"',
+      'ITEM-04,Ceramic Vase,LivSpace Pro,Noon,₹2499',
+    )
+    assert.deepEqual(errors, [])
+    assert.deepEqual(data.map((item) => item.basePrice), [1299, 849, 123456, 2499])
+  })
+
+  test('decimals are still rounded to whole rupees, as before', () => {
+    const { data } = parseCart('ITEM-05,Cutting Board,Nordic Basics,Amazon India,449.50')
+    assert.equal(data[0].basePrice, 450)
+  })
+
+  test('text after the digits is rejected instead of being cut off', () => {
+    const { data, errors } = parseCart(
+      'ITEM-01,Cushion Cover,Natura Casa,Amazon India,1299abc',
+      'ITEM-02,Bed Sheet Set,Natura Casa,Flipkart,1e3',
+      'ITEM-03,Wall Shelf,LivSpace Pro,Amazon India,"12,99"',
+    )
+    assert.deepEqual(data, [])
+    assert.deepEqual(errors, [
+      'Row 2: base_price must be an amount in rupees such as 1299, 1,299 or Rs.1,299, got "1299abc"',
+      'Row 3: base_price must be an amount in rupees such as 1299, 1,299 or Rs.1,299, got "1e3"',
+      'Row 4: base_price must be an amount in rupees such as 1299, 1,299 or Rs.1,299, got "12,99"',
+    ])
+  })
+
+  test('zero, negative and below-Rs.1 prices are rejected', () => {
+    const { data, errors } = parseCart(
+      'ITEM-01,Cushion Cover,Natura Casa,Amazon India,0',
+      'ITEM-02,Bed Sheet Set,Natura Casa,Flipkart,-5',
+      'ITEM-03,Wall Shelf,LivSpace Pro,Amazon India,0.4',
+    )
+    assert.deepEqual(data, [])
+    assert.deepEqual(errors, [
+      'Row 2: base_price must be at least Rs.1, got "0"',
+      'Row 3: base_price must be an amount in rupees such as 1299, 1,299 or Rs.1,299, got "-5"',
+      'Row 4: base_price must be at least Rs.1, got "0.4"',
+    ])
+  })
+
+  test('space-only cells count as missing (they used to load as empty text)', () => {
+    const { data, errors } = parseCart('  ,Cushion Cover,   ,Amazon India,1299')
+    assert.deepEqual(data, [])
+    assert.deepEqual(errors, ['Row 2: missing fields — item_id, brand'])
+  })
+
+  test('missing fields and a bad price in one row are reported in one message', () => {
+    const { errors } = parseCart('ITEM-01,,Natura Casa,,abc')
+    assert.deepEqual(errors, [
+      'Row 2: missing fields — product, platform; base_price must be an amount in rupees such as 1299, 1,299 or Rs.1,299, got "abc"',
+    ])
+  })
+
+  test('a missing base_price cell is reported as missing, as before', () => {
+    const { errors } = parseCart('ITEM-01,Cushion Cover,Natura Casa,Amazon India,')
+    assert.deepEqual(errors, ['Row 2: missing fields — base_price'])
+  })
+
+  test('good rows still load when other rows are rejected, in file order', () => {
+    const { data, errors } = parseCart(
+      'ITEM-01,Cushion Cover,Natura Casa,Amazon India,1299',
+      'ITEM-02,Bed Sheet Set,Natura Casa,Flipkart,oops',
+      'ITEM-03,Wall Shelf,LivSpace Pro,Amazon India,599',
+    )
+    assert.deepEqual(data.map((item) => item.itemId), ['ITEM-01', 'ITEM-03'])
+    assert.equal(errors.length, 1)
+    assert.match(errors[0], /^Row 3: /)
+  })
+
+  test('a header with spaces and capitals still maps to the right fields', () => {
+    const { data, errors } = parseCartCSV('Item ID,Product,Brand,Platform,Base Price\nITEM-01,Lamp,Acme,Noon,"Rs.1,050"')
+    assert.deepEqual(errors, [])
+    assert.deepEqual(data, [{ itemId: 'ITEM-01', product: 'Lamp', brand: 'Acme', platform: 'Noon', basePrice: 1050 }])
+  })
+})

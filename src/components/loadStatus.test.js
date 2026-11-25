@@ -25,14 +25,18 @@ test('uploadStatus: a file with a header but no rows', () => {
 
 test('progressSteps: nothing loaded — first step is current, none complete', () => {
   assert.deepEqual(progressSteps({ ruleCount: 0, cartCount: 0, calculated: false }), [
-    { label: 'Rules loaded', state: 'current' },
-    { label: 'Cart loaded', state: 'upcoming' },
+    { label: 'Cart loaded', state: 'current' },
+    { label: 'Offers loaded', state: 'upcoming' },
     { label: 'Prices calculated', state: 'upcoming' },
   ])
 })
 
-test('progressSteps: cart only — rules step stays current, cart complete', () => {
-  assert.deepEqual(progressSteps({ ruleCount: 0, cartCount: 6, calculated: false }).map((s) => s.state), ['current', 'complete', 'upcoming'])
+test('progressSteps: cart only — cart complete, offers step current', () => {
+  assert.deepEqual(progressSteps({ ruleCount: 0, cartCount: 6, calculated: false }).map((s) => s.state), ['complete', 'current', 'upcoming'])
+})
+
+test('progressSteps: offers only — the cart step stays current', () => {
+  assert.deepEqual(progressSteps({ ruleCount: 4, cartCount: 0, calculated: false }).map((s) => s.state), ['current', 'complete', 'upcoming'])
 })
 
 test('progressSteps: both loaded but not calculated', () => {
@@ -42,7 +46,7 @@ test('progressSteps: both loaded but not calculated', () => {
 test('progressSteps: all complete only when results exist', () => {
   assert.deepEqual(progressSteps({ ruleCount: 4, cartCount: 6, calculated: true }).map((s) => s.state), ['complete', 'complete', 'complete'])
   // results disappear (e.g. cart replaced by an unusable file) → no longer complete
-  assert.deepEqual(progressSteps({ ruleCount: 4, cartCount: 0, calculated: false }).map((s) => s.state), ['complete', 'current', 'upcoming'])
+  assert.deepEqual(progressSteps({ ruleCount: 0, cartCount: 6, calculated: false }).map((s) => s.state), ['complete', 'current', 'upcoming'])
 })
 
 test('plural', () => {

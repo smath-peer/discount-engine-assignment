@@ -2,13 +2,15 @@
  * Global styles: Opptra design system 0.1.0.
  * Token values live in styles/tokens.css (copied unchanged from the design
  * system). Component rules below follow its contracts: Button (C01),
- * TextField (C04), Tabs (C13), Stepper (C14), StatusBadge (C16), Card (C18),
- * DataTable (C20), Alert (C21), EmptyState (C25), LoadingState (C26).
+ * TextField (C04), Stepper (C14), StatusBadge (C16), Card (C18),
+ * DataTable (C20), Alert (C21), LoadingState (C26).
  * Fonts fall back to Georgia / Segoe UI / system fonts if Google Fonts fails.
  */
 @import './styles/tokens.css';
 
 *, *::before, *::after { box-sizing: border-box; }
+/* Anything scrolled or tabbed into view stops below the sticky header */
+html { scroll-padding-top: 88px; }
 
 body {
   margin: 0;
@@ -20,7 +22,7 @@ body {
   font-variant-numeric: lining-nums;
   -webkit-font-smoothing: antialiased;
 }
-h1, h2, h3, h4 { font-family: var(--font-heading); color: var(--color-ink); margin: 0; line-height: var(--line-heading); }
+h1, h2, h3, h4, h5 { font-family: var(--font-heading); color: var(--color-ink); margin: 0; line-height: var(--line-heading); }
 h1 { font-size: var(--font-size-heading); font-weight: 600; letter-spacing: -.025em; }
 h3 { font-size: 1.25rem; font-weight: 600; letter-spacing: -.01em; }
 h4 { font-size: 1.125rem; font-weight: 600; }
@@ -48,8 +50,6 @@ button:disabled { cursor: not-allowed; }
 .page-head .lead { max-width: var(--reading-max); color: var(--color-text-muted); margin-top: var(--space-3); }
 .eyebrow { display: block; font-size: var(--font-size-caption); font-weight: 600; letter-spacing: .13em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: var(--space-3); }
 .eyebrow-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--opptra-orange); margin-right: 8px; vertical-align: 1px; }
-.stack { display: flex; flex-direction: column; gap: var(--space-6); }
-.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); }
 .section-label { font-family: var(--font-body); line-height: 1.4; display: flex; align-items: center; gap: 10px; font-size: var(--font-size-caption); font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-muted); margin: 0 0 var(--space-3); }
 .section-label .optional { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .step-no { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--color-surface-accent); border: 1px solid #DACE99; color: var(--color-ink); letter-spacing: 0; font-size: .6875rem; flex-shrink: 0; }
@@ -58,7 +58,32 @@ button:disabled { cursor: not-allowed; }
 .card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-medium); padding: var(--space-5); min-width: 0; }
 .card-head { margin-bottom: var(--space-4); }
 .card-head p { margin-top: 6px; font-size: var(--font-size-small); color: var(--color-text-muted); }
-.data-panel { margin-top: var(--space-5); }
+
+/*
+ * ── Checkout layout ───────────────────────────────────────────────
+ * One column by default: Your cart, Offers, Checkout, in DOM order (also the
+ * keyboard and reading order). From the design system's wide breakpoint
+ * (1100px): Cart and Offers on the left, Checkout on the right, spanning
+ * both rows and sticky below the header so the amount to pay stays in view.
+ */
+.checkout-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.checkout-layout > section { min-width: 0; }
+.offers-stack { display: flex; flex-direction: column; gap: var(--space-5); }
+@media (min-width: 1100px) {
+  .checkout-layout { grid-template-columns: minmax(0, 1fr) 24rem; grid-template-areas: 'cart checkout' 'offers checkout'; }
+  .area-cart { grid-area: cart; }
+  .area-offers { grid-area: offers; }
+  .area-checkout { grid-area: checkout; position: sticky; top: 96px; }
+  /* Taller than the screen below the header: scrolls with the page instead (set in App.jsx) */
+  .area-checkout.too-tall { position: static; }
+}
+
+/* Headings above the cart's item list and the active offers table */
+.cart-items, .active-offers { margin-top: var(--space-5); padding-top: var(--space-5); border-top: 1px solid var(--color-border); }
+.list-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.list-head h3 { font-size: 1.0625rem; }
+.list-count { font-size: var(--font-size-caption); color: var(--color-text-muted); white-space: nowrap; }
+.list-note { font-size: .75rem; color: var(--color-text-muted); margin-bottom: var(--space-3); }
 
 /* ── Progress (C14 Stepper, informational) ──────────────────────── */
 .stepper { list-style: none; display: flex; flex-wrap: wrap; margin: 0; padding: 0; gap: 10px 14px; align-items: center; }
@@ -70,7 +95,6 @@ button:disabled { cursor: not-allowed; }
 .stepper li:not(:last-child)::after { content: ''; width: 18px; border-top: 1px solid var(--color-border-control); }
 
 /* ── File picker row (Button + StatusBadge) ─────────────────────── */
-.file-col { min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
 .file-row { display: flex; align-items: center; gap: var(--space-4); padding: var(--space-4); border: 1px solid var(--color-border); border-radius: var(--radius-medium); background: var(--color-surface-subtle); }
 .file-row.is-empty { border: 1.5px dashed var(--color-border-control); background: var(--color-canvas); }
 .file-icon { width: 40px; height: 40px; border-radius: var(--radius-small); background: var(--color-surface); border: 1px solid var(--color-border); display: grid; place-items: center; color: var(--color-ink); flex-shrink: 0; }
@@ -89,6 +113,7 @@ button:disabled { cursor: not-allowed; }
 .btn.secondary { border-color: var(--color-border-control); background: #fff; color: var(--color-ink); }
 .btn.secondary:hover { background: var(--color-surface-subtle); }
 .btn:disabled, .btn:disabled:hover { background: var(--color-disabled-surface); color: var(--color-disabled); border-color: transparent; }
+.btn[aria-disabled='true'], .btn[aria-disabled='true']:hover { background: var(--color-disabled-surface); color: var(--color-disabled); border-color: transparent; cursor: progress; }
 .btn.sm { min-height: var(--control-height-small); padding: 7px 14px; font-size: .75rem; }
 .btn.lg { min-height: var(--control-height-large); padding: 13px 28px; font-size: var(--font-size-body); }
 .spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; animation: spin 900ms linear infinite; }
@@ -112,14 +137,8 @@ button:disabled { cursor: not-allowed; }
 .badge.warning { background: var(--color-warning-surface); color: var(--color-warning); }
 .badge.danger { background: var(--color-danger-surface); color: var(--color-danger); }
 .tag { display: inline-flex; align-items: center; border: 1px solid #DACE99; border-radius: var(--radius-pill); padding: 2px 9px; font-size: .6875rem; font-weight: 600; line-height: 1.4; color: var(--color-ink); background: var(--color-surface-accent); white-space: nowrap; }
-
-/* ── Tabs (C13) ─────────────────────────────────────────────────── */
-.tabs { display: flex; border-bottom: 1px solid var(--color-border); gap: 24px; overflow-x: auto; }
-.tab { border: 0; border-bottom: 2px solid transparent; background: none; padding: 12px 2px; min-height: 44px; font-size: .875rem; color: var(--color-text-muted); font-weight: 600; white-space: nowrap; }
-.tab[aria-selected='true'] { border-bottom-color: var(--opptra-orange); color: var(--color-ink); }
-.tab .count { display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 99px; background: var(--color-surface-subtle); font-size: .6875rem; color: var(--color-text); }
-.tab-panel { padding-top: var(--space-4); }
-.tab-note { font-size: .75rem; color: var(--color-text-muted); margin-bottom: var(--space-3); }
+.tag.best { background: var(--color-success-surface); border-color: var(--color-success); color: var(--color-success); }
+.tag.subtle { background: var(--color-surface-subtle); border-color: var(--color-border-control); color: var(--color-text); }
 
 /* ── Data table (C20) ───────────────────────────────────────────── */
 .table-wrap { position: relative; max-width: 100%; overflow-x: auto; border: 1px solid var(--color-border); border-radius: var(--radius-medium); }
@@ -131,22 +150,35 @@ button:disabled { cursor: not-allowed; }
 .table-wrap td strong { color: var(--color-ink); font-weight: 600; }
 .table-wrap .align-right { text-align: right; white-space: nowrap; }
 .table-wrap .nowrap { white-space: nowrap; }
-.table-sub { display: block; color: var(--color-text-muted); font-size: .6875rem; margin-top: 2px; }
-.table-sub.nowrap { white-space: nowrap; margin-top: 0; }
-.table-sub.parts { margin-top: 0; }
-/* Text that must not break inside itself: one offer ("Platform offer: 15% off"), one brand or platform name */
-.offer-part, .keep { white-space: nowrap; }
-/*
- * Results table beside the cart-total panel: the design system's compact
- * 12px side padding (allowed here: the table has no controls) and a fixed
- * item column, so each offer and each product name stays on one line.
- */
-.table-wrap.results-table th, .table-wrap.results-table td { padding-left: 12px; padding-right: 12px; }
-.table-wrap.results-table th.col-product { width: 11.5rem; }
-.table-wrap.results-table td.col-product strong { white-space: nowrap; }
+/* Text that must not break inside itself: one brand or platform name */
+.keep { white-space: nowrap; }
 .table-empty { padding: var(--space-5) var(--space-4); text-align: center; font-size: .8125rem; color: var(--color-text-muted); border: 1px dashed var(--color-border-control); border-radius: var(--radius-medium); }
-.saving { color: var(--color-success); font-weight: 600; }
-.none { color: var(--color-text-muted); }
+
+/*
+ * ── Product cards (the cart) ──────────────────────────────────────
+ * Name, brand and platform on the left; the price on the right (final price,
+ * base price struck through, the saving). Below: each applied offer with
+ * what it took off, then the offer comparison when there is one.
+ */
+.product-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.product-card { border: 1px solid var(--color-border); border-radius: var(--radius-medium); background: var(--color-surface); padding: var(--space-4); }
+.product-head { display: flex; justify-content: space-between; align-items: start; gap: var(--space-4); }
+.product-info { min-width: 0; }
+.product-name { font-family: var(--font-body); font-size: .9375rem; font-weight: 600; letter-spacing: 0; line-height: 1.4; overflow-wrap: anywhere; }
+.product-meta { margin-top: 2px; font-size: .75rem; color: var(--color-text-muted); overflow-wrap: anywhere; }
+/* A brand or platform name moves to the next line whole; only a name longer than a full line wraps inside */
+.product-meta .keep { display: inline-block; max-width: 100%; white-space: normal; }
+.product-id { margin-left: 4px; padding-left: var(--space-2); border-left: 1px solid var(--color-border); color: var(--color-text-muted); white-space: nowrap; }
+.product-price { display: flex; flex-direction: column; align-items: end; text-align: right; flex-shrink: 0; font-variant-numeric: lining-nums tabular-nums; }
+.price-was { font-size: .75rem; color: var(--color-text-muted); }
+.price-now { font-size: 1.125rem; font-weight: 600; color: var(--color-ink); letter-spacing: -.01em; white-space: nowrap; }
+.price-saving { font-size: .75rem; font-weight: 600; color: var(--color-success); white-space: nowrap; }
+.product-offers { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--color-border); font-size: .8125rem; }
+.applied-offers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.applied-offers li { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); }
+.applied-offer-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); min-width: 0; color: var(--color-text); }
+.applied-offer-amount { color: var(--color-success); font-weight: 600; white-space: nowrap; font-variant-numeric: lining-nums tabular-nums; }
+.offer-none { color: var(--color-text-muted); }
 
 /* ── Alert (C21) ────────────────────────────────────────────────── */
 .alert { display: flex; gap: 12px; padding: 16px; border-radius: var(--radius-medium); font-size: .8125rem; background: var(--color-info-surface); color: var(--color-info); align-items: start; border-left: 3px solid currentColor; }
@@ -160,6 +192,11 @@ button:disabled { cursor: not-allowed; }
 .alert.warning { color: var(--color-warning); background: var(--color-warning-surface); }
 .alert.danger { color: var(--color-danger); background: var(--color-danger-surface); }
 .notice { margin-top: var(--space-4); }
+.cart-notice-region:empty { display: none; }
+.alert .skipped-list.scroll { max-height: 11rem; overflow-y: auto; padding-right: var(--space-2); }
+.alert .notice-note { margin-top: 6px; color: var(--color-text-muted); }
+.alert .alert-title:focus { outline: none; }
+.alert .alert-title:focus-visible { outline: var(--focus-width) solid var(--color-focus); outline-offset: 2px; }
 
 /* ── Rule review (Card + Metric in a yellow accent frame) ───────── */
 .review { margin-top: var(--space-4); border: 1px solid #DACE99; border-radius: var(--radius-medium); background: var(--color-surface-accent); padding: var(--space-5); }
@@ -180,16 +217,34 @@ button:disabled { cursor: not-allowed; }
 .impact-warning { color: var(--color-danger); font-weight: 600; margin-bottom: var(--space-2); }
 .review-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: var(--space-5); }
 
-/* ── Calculate action bar ───────────────────────────────────────── */
-.action-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-5); border-radius: var(--radius-medium); background: var(--color-surface); border: 1px solid var(--color-border); }
-.action-status { display: flex; align-items: center; gap: 12px; min-width: 0; font-size: var(--font-size-small); }
-.action-status strong { display: block; color: var(--color-ink); font-weight: 600; }
-.action-status .tiny { display: block; color: var(--color-text-muted); }
+/* ── Checkout panel: price details and the amount to pay ────────── */
+.price-details-title { margin-bottom: var(--space-4); }
+.checkout-warning { margin-bottom: var(--space-4); }
+.checkout-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--space-3); margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--color-border); font-size: .75rem; color: var(--color-text-muted); }
+.checkout-empty-title { font-weight: 600; color: var(--color-ink); }
+.checkout-empty-note { margin-top: 4px; font-size: .8125rem; color: var(--color-text-muted); }
+.checkout-calc { width: 100%; margin-top: var(--space-5); }
+.price-details-title:focus { outline: none; }
+.price-details-title:focus-visible { outline: var(--focus-width) solid var(--color-focus); outline-offset: 2px; }
 
-/* ── Results and cart total ─────────────────────────────────────── */
-.results-grid { display: grid; grid-template-columns: minmax(0, 1fr) 23rem; gap: var(--space-5); align-items: start; }
-.summary { border: 1px solid var(--color-border); border-radius: var(--radius-medium); padding: var(--space-5); background: var(--color-surface); position: sticky; top: 96px; }
-.summary h3 { margin-bottom: var(--space-4); }
+/*
+ * ── Amount-to-pay bar (PayBar) ────────────────────────────────────
+ * Only in the one-column layout (below 1100px). The page gets extra room at
+ * the bottom and a matching scroll padding, so the bar never covers the last
+ * controls or a focused one.
+ */
+.pay-bar { display: none; }
+@media (max-width: 1099px) {
+  .pay-bar { display: block; position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-sticky); background: var(--color-surface); border-top: 1px solid var(--color-border); box-shadow: var(--shadow-raised); }
+  .pay-bar-inner { max-width: var(--content-max); margin: auto; padding: 10px 5% calc(10px + env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
+  .pay-bar-figures { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; font-variant-numeric: lining-nums tabular-nums; }
+  .pay-bar-label { font-size: .6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted); }
+  .pay-bar-total { font-size: 1.375rem; font-weight: 600; letter-spacing: -.02em; color: var(--color-ink); white-space: nowrap; }
+  .pay-bar-saving { font-size: .75rem; font-weight: 600; color: var(--color-success); white-space: nowrap; }
+  .pay-bar .btn { flex-shrink: 0; }
+  .app:has(.pay-bar) .page { padding-bottom: calc(var(--space-8) + 5.5rem); }
+  html:has(.pay-bar) { scroll-padding-bottom: 6rem; }
+}
 .summary-line { display: flex; justify-content: space-between; gap: var(--space-4); font-size: var(--font-size-small); padding: 8px 0; }
 .summary-line .num { font-weight: 600; color: var(--color-ink); white-space: nowrap; }
 .summary-line.offer { color: var(--color-success); font-weight: 600; }
@@ -200,30 +255,43 @@ button:disabled { cursor: not-allowed; }
 .summary-total span { font-weight: 600; color: var(--color-ink); }
 .summary-total .total-value { font-size: 2rem; letter-spacing: -.03em; white-space: nowrap; }
 .summary-note { margin-top: var(--space-3); font-size: .75rem; color: var(--color-text-muted); }
+.summary-note.threshold { padding: 10px 12px; border-radius: var(--radius-small); background: var(--color-surface-subtle); color: var(--color-text); }
+.savings-banner { margin-top: var(--space-4); padding: 10px 12px; border-radius: var(--radius-small); background: var(--color-success-surface); color: var(--color-success); font-size: var(--font-size-small); font-weight: 600; text-align: center; }
+.savings-banner strong { font-size: 1rem; }
 
-/* ── Empty state (C25) ──────────────────────────────────────────── */
-.empty { text-align: center; padding: var(--space-6) var(--space-4); }
-.empty.bordered { border: 1px solid var(--color-border); border-radius: var(--radius-medium); }
-.empty-mark { width: 44px; height: 44px; border-radius: 50%; background: var(--color-surface-accent); border: 1px solid #DACE99; display: grid; place-items: center; margin: 0 auto 14px; color: var(--color-ink); }
-.empty-mark svg { width: 20px; height: 20px; }
-.empty h3 { margin-bottom: 8px; }
-.empty p { font-size: .8125rem; color: var(--color-text-muted); max-width: 26rem; margin: 0 auto; }
+/* ── Offer comparison and preview (inside a product card) ───────── */
+.link-button { border: 0; background: none; padding: 4px 0; min-height: 32px; color: var(--color-link); font-size: .75rem; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.link-button:hover { color: var(--color-ink); }
+.offer-compare { margin-top: 4px; }
+.offer-options { margin-top: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-small); background: var(--color-surface-subtle); font-size: .75rem; white-space: normal; }
+.offer-reason { margin-bottom: var(--space-2); color: var(--color-text); }
+.offer-options ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.offer-options li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border); border-radius: var(--radius-small); background: var(--color-surface); }
+.offer-options li.applied { border-color: var(--color-success); }
+.offer-option-text { display: flex; flex-direction: column; min-width: 0; }
+.offer-option-name { font-weight: 600; color: var(--color-ink); }
+.offer-option-figures { color: var(--color-text-muted); }
+.offer-stackable { margin-top: var(--space-2); color: var(--color-text-muted); }
+.offer-preview { margin-top: var(--space-3); padding: var(--space-3); border: 1px dashed var(--color-border-control); border-radius: var(--radius-small); background: var(--color-surface); }
+.offer-preview p { margin-top: 4px; color: var(--color-text); }
+.offer-preview-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-3); }
+.offer-preview-head h5 { font-size: .875rem; font-weight: 600; }
+.offer-preview-head h5:focus { outline: none; }
+.offer-preview-head h5:focus-visible { outline: var(--focus-width) solid var(--color-focus); outline-offset: 2px; }
+.preview-tag { background: var(--color-info-surface); border-color: var(--color-info); color: var(--color-info); }
+.offer-preview .impact-figures { grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr)); gap: var(--space-3); }
+.offer-preview .impact-figures dd { font-size: 1.1rem; white-space: nowrap; }
 
 /* ── Responsive (design-system breakpoints 1100 / 850 / 600) ────── */
-/* Below 1200px there is not enough width for the table and the panel side by side */
-@media (max-width: 1199px) {
-  .results-grid { grid-template-columns: minmax(0, 1fr); }
-  .summary { position: static; }
-}
 @media (max-width: 850px) {
-  .grid-2 { grid-template-columns: minmax(0, 1fr); }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .topbar-inner { min-height: 64px; }
 }
 @media (max-width: 600px) {
   h1 { font-size: 1.9rem; }
   .page { padding-top: var(--space-5); }
-  .card, .review, .action-bar { padding: var(--space-4); }
+  .card, .review { padding: var(--space-4); }
+  .product-card { padding: var(--space-3); }
   .topbar-label { display: none; }
   .file-row { flex-wrap: wrap; }
   .file-row .btn { width: 100%; }
@@ -231,7 +299,7 @@ button:disabled { cursor: not-allowed; }
   .impact-figures { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .impact-figures > div { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); padding: 6px 0; border-bottom: 1px solid var(--color-border); }
   .impact-figures dd { font-size: 1.15rem; }
-  .action-bar .btn, .field-row .btn, .review-actions .btn { flex: 1 1 auto; }
+  .field-row .btn, .review-actions .btn { flex: 1 1 auto; }
   .summary-total .total-value { font-size: 1.6rem; }
 
   /*
@@ -258,16 +326,6 @@ button:disabled { cursor: not-allowed; }
   /* The first cell names the card: no label, full width, divider below */
   .table-wrap.cards td:first-child { padding: 0 0 10px; margin-bottom: 6px; border-bottom: 1px solid var(--color-border); min-height: 0; }
   .table-wrap.cards td:first-child::before { display: none; }
-
-  /* Results: final price top right, prominent; the offer gets the full card width */
-  .table-wrap.cards.results-table tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--space-4); }
-  .table-wrap.cards.results-table td { grid-column: 1 / -1; }
-  .table-wrap.cards.results-table td.col-product { grid-column: 1; grid-row: 1; border-bottom: 0; margin-bottom: 0; }
-  .table-wrap.cards.results-table td.col-finalPrice { grid-column: 2; grid-row: 1; padding: 0; text-align: right; }
-  .table-wrap.cards.results-table td.col-finalPrice::before { position: static; display: block; width: auto; text-align: right; margin-bottom: 2px; }
-  .table-wrap.cards.results-table td.col-finalPrice strong { font-size: 1.25rem; letter-spacing: -.02em; }
-  .table-wrap.cards.results-table td.col-reasoning { grid-row: 2; padding: 10px 0 6px; border-top: 1px solid var(--color-border); }
-  .table-wrap.cards.results-table td.col-reasoning::before { position: static; display: block; width: auto; margin-bottom: 2px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

@@ -4,7 +4,7 @@
   "description": "Opptra FDE Intern Assignment — Discount Engine",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "scripts": {
     "dev": "vite",
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "papaparse": "^5.4.1",
+    "pdfjs-dist": "^6.5.438",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

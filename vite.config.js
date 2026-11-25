@@ -57,4 +57,8 @@ function parseRuleDevRoute() {
 
 export default defineConfig({
   plugins: [react(), parseRuleDevRoute()],
+  // PDF.js is loaded only when a PDF is chosen. Listing it here prepares it when
+  // the dev server starts, instead of reloading the page at the first PDF upload.
+  // Development only; it does not change the production build.
+  optimizeDeps: { include: ['pdfjs-dist'] },
 })

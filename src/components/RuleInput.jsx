@@ -142,7 +142,7 @@ export default function RuleInput({ activeRules = [], cartItems = [], onConfirm 
             <span className="symbol" aria-hidden="true">✓</span>
             <div className="alert-body">
               <p className="alert-title">Rule {state.confirmedRuleId} added.</p>
-              <p>It is listed in the Rules tab with an “Added” tag.</p>
+              <p>It is listed under Active offers with an “Added” tag.</p>
             </div>
           </div>
         )}

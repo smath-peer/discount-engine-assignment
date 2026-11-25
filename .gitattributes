@@ -1,0 +1,4 @@
+# PDFs are stored and checked out byte for byte. Without this, Git can treat a
+# text-only PDF as text and change its line endings on Windows, which breaks the
+# byte offsets inside the file.
+*.pdf binary

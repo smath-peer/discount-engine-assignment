@@ -24,15 +24,16 @@ export function uploadStatus({ fileName, rowCount, errorCount }) {
 }
 
 /**
- * The three progress steps. A step is complete only when its condition is
- * true right now: rules in use, cart items loaded, results calculated.
+ * The three progress steps, in the page's order (cart, offers, checkout).
+ * A step is complete only when its condition is true right now: cart items
+ * loaded, offers (rules) in use, results calculated.
  * The first step that is not complete is the current one.
  * Returns [{ label, state: 'complete' | 'current' | 'upcoming' }].
  */
 export function progressSteps({ ruleCount, cartCount, calculated }) {
   const steps = [
-    ['Rules loaded', ruleCount > 0],
     ['Cart loaded', cartCount > 0],
+    ['Offers loaded', ruleCount > 0],
     ['Prices calculated', Boolean(calculated)],
   ]
   const currentIndex = steps.findIndex(([, done]) => !done)

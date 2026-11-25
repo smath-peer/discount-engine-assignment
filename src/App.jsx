@@ -2,7 +2,9 @@
  * App.jsx
  *
  * Top-level component. Manages state for rules, cart items, and results.
- * Wires together CSV upload / plain-language rules → parse → engine → display.
+ * Wires together file upload (rules CSV; cart CSV or PDF) / plain-language
+ * rules → parse → engine → display. Cart files go through cartLoad.js, which
+ * decides whether a file replaces the cart and keeps the cart Undo restores.
  *
  * Two rule lists are kept apart:
  *   csvRules       — replaced by each rules.csv upload
@@ -13,31 +15,44 @@
  * first "Calculate Discounts" click; after that, any change to the rules or
  * the cart re-prices automatically.
  *
- * Layout and styling follow the Opptra design system (see index.css); the
- * state and handlers below are unchanged by the redesign.
+ * Layout: a checkout page. On wide screens, "Your cart" and "Offers" on the
+ * left and a sticky "Checkout" panel on the right; on narrower screens the
+ * same three sections stack in that order, which is also the reading and
+ * keyboard order everywhere. In one column, once prices are calculated, a
+ * bar fixed to the bottom of the screen (PayBar) keeps the amount to pay in
+ * view. Styling follows the Opptra design system (see index.css).
  */
 
-import { useMemo, useState } from 'react'
-import CsvUploader from './components/CsvUploader.jsx'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import FileUploader from './components/FileUploader.jsx'
+import CartLoadNotice from './components/CartLoadNotice.jsx'
+import CartItemList from './components/CartItemList.jsx'
+import CheckoutSummary from './components/CheckoutSummary.jsx'
+import PayBar from './components/PayBar.jsx'
 import DataTable from './components/DataTable.jsx'
-import DataTabs from './components/DataTabs.jsx'
 import ErrorBanner from './components/ErrorBanner.jsx'
 import RuleInput from './components/RuleInput.jsx'
 import { uploadStatus, progressSteps, plural } from './components/loadStatus.js'
-import { parseRulesCSV, parseCartCSV } from './engine/csvParser.js'
+import { parseRulesCSV } from './engine/csvParser.js'
 import { combineRules, canCalculate as hasEnoughToCalculate, computeResults, addConfirmedRule, withoutConfirmedIdClashes } from './appRules.js'
+import { INITIAL_CART_STATE, readCartFile, applyCartLoad, undoCartLoad } from './cartLoad.js'
+import { loadPdfjs } from './pdf/loadPdfjs.js'
+import { checkoutSummary, partialCartWarning } from './checkout/checkoutSummary.js'
+import {
+  appliedOfferBreakdown, itemOfferOptions, previewOffer, openPreview, closePreview, currentPreview,
+} from './checkout/offerComparison.js'
 
 // The official logo from the Opptra design system; a text wordmark is shown if it cannot load
 const LOGO_URL = 'https://cdn.prod.website-files.com/6933cd7135f6e590ffef0761/6937f6a9040488e80b8e30b0_logo.svg'
 
 const rupees = (amount) => `Rs.${amount.toLocaleString('en-IN')}`
 
-// ── Column definitions ───────────────────────────────────────────
+// ── Active offers table ──────────────────────────────────────────
 
 const RULES_COLUMNS = [
   {
     key: 'ruleId',
-    label: 'Rule',
+    label: 'Offer',
     nowrap: true,
     render: (v, row) => (
       <>
@@ -69,73 +84,7 @@ const RULES_COLUMNS = [
   { key: 'stackable', label: 'Stacks', render: (v) => (v ? 'Yes' : 'No') },
 ]
 
-const CART_COLUMNS = [
-  {
-    key: 'product',
-    label: 'Item',
-    render: (v, row) => (
-      <>
-        <strong>{v}</strong>
-        <span className="table-sub">{row.itemId}</span>
-      </>
-    ),
-  },
-  { key: 'brand',     label: 'Brand' },
-  { key: 'platform',  label: 'Platform' },
-  { key: 'basePrice', label: 'Base price', align: 'right', render: (v) => rupees(v) },
-]
-
-const RESULTS_COLUMNS = [
-  {
-    key: 'product',
-    label: 'Item',
-    render: (v, row) => (
-      <>
-        <strong>{v}</strong>
-        <span className="table-sub">{row.itemId}</span>
-        {/* May break only between the brand and the platform, never inside a name */}
-        <span className="table-sub parts">
-          <span className="keep">{row.brand}</span> · <span className="keep">{row.platform}</span>
-        </span>
-      </>
-    ),
-  },
-  {
-    key: 'reasoning',
-    label: 'Offer applied',
-    render: (v) => <OfferText text={v} />,
-  },
-  { key: 'basePrice', label: 'Base price', align: 'right', render: (v) => rupees(v) },
-  {
-    key: 'totalDiscount',
-    label: 'You save',
-    align: 'right',
-    render: (v) => (v > 0 ? <span className="saving">{rupees(v)}</span> : <span className="none">{rupees(0)}</span>),
-  },
-  { key: 'finalPrice', label: 'Final price', align: 'right', render: (v) => <strong>{rupees(v)}</strong> },
-]
-
 // ── Small presentational pieces ──────────────────────────────────
-
-/**
- * The engine's reasoning text, unchanged, shown so that one offer
- * ("Platform offer: 15% off") never breaks across lines; a combined offer
- * may break only after its " + ". The visible and spoken text is identical.
- */
-function OfferText({ text }) {
-  if (text === 'No offers available') return <span className="none">{text}</span>
-  const parts = text.split(' + ')
-  return (
-    <span>
-      {parts.map((part, i) => (
-        <span key={i}>
-          {i > 0 && ' '}
-          <span className="offer-part">{i < parts.length - 1 ? `${part} +` : part}</span>
-        </span>
-      ))}
-    </span>
-  )
-}
 
 function Logo() {
   const [failed, setFailed] = useState(false)
@@ -170,66 +119,6 @@ function SectionLabel({ id, number, children }) {
   )
 }
 
-function EmptyState({ title, children, bordered, icon }) {
-  return (
-    <div className={`empty${bordered ? ' bordered' : ''}`}>
-      <div className="empty-mark" aria-hidden="true">{icon}</div>
-      <h3>{title}</h3>
-      <p>{children}</p>
-    </div>
-  )
-}
-
-const TableIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
-    <path d="M3.5 9.5h17M9.5 9.5v10" />
-  </svg>
-)
-const PlusIcon = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-    <path d="M5 12h14M12 5v14" />
-  </svg>
-)
-
-function CartTotal({ results }) {
-  const items = plural(results.items.length, 'item')
-  if (results.cartOffers.length === 0) {
-    return (
-      <aside className="summary" aria-labelledby="summary-title">
-        <h3 id="summary-title" className="sr-only">Cart total</h3>
-        <div className="summary-total first">
-          <span>Cart total</span>
-          <span className="total-value">{rupees(results.subtotal)}</span>
-        </div>
-        <p className="summary-note">{items} after item offers. No cart-level offer applies.</p>
-      </aside>
-    )
-  }
-  return (
-    <aside className="summary" aria-labelledby="summary-title">
-      <h3 id="summary-title">Cart total</h3>
-      <div className="summary-line">
-        <span>Cart total before offer<span className="sub">{items} after item offers</span></span>
-        <span className="num">{rupees(results.subtotal)}</span>
-      </div>
-      {results.cartOffers.map((offer) => (
-        <div key={offer.ruleId} className="summary-line offer">
-          <span>
-            {offer.label}
-            <span className="sub">{offer.ruleId} · cart total of {rupees(offer.minCartValue)} or more</span>
-          </span>
-          <span className="num">−{rupees(offer.amount)}</span>
-        </div>
-      ))}
-      <div className="summary-total">
-        <span>Final cart total</span>
-        <span className="total-value">{rupees(results.finalTotal)}</span>
-      </div>
-    </aside>
-  )
-}
-
 // ── Component ────────────────────────────────────────────────────
 
 export default function App() {
@@ -240,22 +129,74 @@ export default function App() {
   // Rules added in plain language; only ever added to by a confirmation
   const [confirmedRules, setConfirmedRules] = useState([])
 
-  const [cartItems, setCartItems]   = useState([])
-  const [cartErrors, setCartErrors] = useState([])
-  const [cartFileName, setCartFileName]   = useState('')
+  // The cart in use and the cart Undo would restore (see cartLoad.js)
+  const [cartState, setCartState]   = useState(INITIAL_CART_STATE)
+  // What the last cart upload or Undo did, shown under the cart file row
+  const [cartNotice, setCartNotice] = useState(null)
+  // The cart file being read right now ('' when none); PDFs take a moment
+  const [cartBusyFile, setCartBusyFile] = useState('')
+  const cartRequest = useRef(0)
+  const cartNoticeTitle = useRef(null)
+  const [focusCartNotice, setFocusCartNotice] = useState(false)
+  const cart = cartState.cart
+  const cartItems = cart.items
 
   // False until the first "Calculate Discounts" click; then results stay live
   const [hasCalculated, setHasCalculated] = useState(false)
-
-  // Which table the Load Data tabs show; display only
-  const [dataTab, setDataTab] = useState('rules')
 
   const activeRules = useMemo(() => combineRules(csvRules, confirmedRules), [csvRules, confirmedRules])
   const results = useMemo(
     () => computeResults({ hasCalculated, activeRules, cartItems }),
     [hasCalculated, activeRules, cartItems],
   )
-  // Rows for the rules table, marking which rules were added in plain language
+  // The price breakdown, read from the actual result only (previews never reach it)
+  const summary = useMemo(
+    () => (results ? checkoutSummary(results, activeRules.filter((rule) => rule.scope === 'cart')) : null),
+    [results, activeRules],
+  )
+  // For each priced item: what each applied offer took off, and its alternatives (or null)
+  const breakdowns = useMemo(
+    () => (results ? results.items.map((result, i) => appliedOfferBreakdown(cartItems[i], activeRules, result)) : []),
+    [results, cartItems, activeRules],
+  )
+  const comparisons = useMemo(
+    () => (results ? results.items.map((result, i) => itemOfferOptions(cartItems[i], activeRules, result)) : []),
+    [results, cartItems, activeRules],
+  )
+
+  // Which item's offer list is open, and which preview: one of each at a time.
+  // Both remember the cart and rules they were opened for, so any change to
+  // either closes them (see currentPreview in offerComparison.js).
+  const [compareState, setCompareState] = useState(null)
+  const [previewState, setPreviewState] = useState(null)
+  const comparing = results ? currentPreview(compareState, cartItems, activeRules) : null
+  const previewing = results ? currentPreview(previewState, cartItems, activeRules) : null
+  const preview = previewing ? previewOffer(cartItems, activeRules, results, previewing.itemIndex, previewing.ruleId) : null
+
+  function handleToggleCompare(itemIndex) {
+    const isOpen = comparing?.itemIndex === itemIndex
+    setCompareState(isOpen ? closePreview() : openPreview(cartItems, activeRules, itemIndex, null))
+    setPreviewState(closePreview())
+  }
+
+  function handlePreview(itemIndex, ruleId) {
+    setPreviewState(openPreview(cartItems, activeRules, itemIndex, ruleId))
+  }
+
+  // After a preview closes, focus returns to the button that opened it
+  const [returnFocusTo, setReturnFocusTo] = useState(null)
+  useEffect(() => {
+    if (!returnFocusTo) return
+    document.getElementById(returnFocusTo)?.focus()
+    setReturnFocusTo(null)
+  }, [returnFocusTo])
+
+  function handleClosePreview() {
+    if (previewing) setReturnFocusTo(`preview-button-${previewing.itemIndex}-${previewing.ruleId}`)
+    setPreviewState(closePreview())
+  }
+
+  // Rows for the active offers table, marking which were added in plain language
   const ruleRows = useMemo(
     () => [
       ...csvRules.map((rule) => ({ ...rule, source: 'csv' })),
@@ -275,15 +216,88 @@ export default function App() {
     setRulesFileName(fileName)
   }
 
-  function handleCartLoad(csvText, fileName) {
-    const { data, errors } = parseCartCSV(csvText)
-    setCartItems(data)
-    setCartErrors(errors)
-    setCartFileName(fileName)
+  async function handleRulesSelect(file) {
+    handleRulesLoad(await file.text(), file.name)
   }
+
+  // Prices are already on screen, so a cart change re-prices them visibly
+  const pricesShown = hasCalculated && activeRules.length > 0
+
+  /**
+   * Reads a cart CSV or PDF. A file with usable rows replaces the cart (with
+   * Undo); a file without any keeps the current cart. See cartLoad.js.
+   */
+  async function handleCartSelect(file) {
+    const request = ++cartRequest.current
+    setCartBusyFile(file.name)
+    setCartNotice(null) // an older Undo must not be pressed while the new file is read
+    const result = await readCartFile(file, { loadPdfjs })
+    if (request !== cartRequest.current) return // a newer file was chosen meanwhile
+
+    const { state, notice } = applyCartLoad(cartState, result, { fileName: file.name, calculated: pricesShown })
+    setCartState(state)
+    setCartNotice(notice)
+    setCartBusyFile('')
+  }
+
+  function handleCartUndo() {
+    const undone = undoCartLoad(cartState, { calculated: pricesShown })
+    if (!undone) return
+    setCartState(undone.state)
+    setCartNotice(undone.notice)
+    setFocusCartNotice(true) // the Undo button is gone, so focus moves to the outcome
+  }
+
+  useEffect(() => {
+    if (!focusCartNotice) return
+    cartNoticeTitle.current?.focus()
+    setFocusCartNotice(false)
+  }, [focusCartNotice])
+
+  // ── Checkout panel: focus, and whether it fits on screen ──
+
+  const checkoutSection = useRef(null)
+  const checkoutTitle = useRef(null)
+  const [focusCheckout, setFocusCheckout] = useState(false)
+
+  /** Brings the "Price details" heading into view and moves focus to it. */
+  function showPriceDetails() {
+    const heading = checkoutTitle.current
+    if (!heading) return
+    heading.focus({ preventScroll: true })
+    heading.scrollIntoView({ block: 'start' }) // stops below the sticky header (scroll-padding-top)
+  }
+
+  // The Calculate button is replaced by the price details, so focus moves to them
+  useEffect(() => {
+    if (!focusCheckout) return
+    showPriceDetails()
+    setFocusCheckout(false)
+  }, [focusCheckout])
+
+  // On wide screens Checkout stays in view (sticky) only while it fits below
+  // the header; a taller panel scrolls with the page, so none of it is cut off
+  const [checkoutFits, setCheckoutFits] = useState(true)
+  useEffect(() => {
+    const section = checkoutSection.current
+    if (!section) return undefined
+    const check = () => {
+      const top = parseFloat(getComputedStyle(section).top) || 0
+      setCheckoutFits(section.offsetHeight <= window.innerHeight - top - 16)
+    }
+    check()
+    const observer = new ResizeObserver(check)
+    observer.observe(section)
+    window.addEventListener('resize', check)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', check)
+    }
+  }, [])
 
   function handleCalculate() {
     setHasCalculated(true)
+    setFocusCheckout(true)
   }
 
   function handleConfirmRule(rule) {
@@ -298,24 +312,27 @@ export default function App() {
 
   const steps = progressSteps({ ruleCount: activeRules.length, cartCount: cartItems.length, calculated: results !== null })
   const rulesStatus = uploadStatus({ fileName: rulesFileName, rowCount: csvRules.length, errorCount: rulesErrors.length })
-  const cartStatus = uploadStatus({ fileName: cartFileName, rowCount: cartItems.length, errorCount: cartErrors.length })
+  const cartStatus = uploadStatus({ fileName: cart.fileName, rowCount: cartItems.length, errorCount: cart.skipped.length })
   const rulesDetail =
-    plural(csvRules.length, 'rule') +
+    plural(csvRules.length, 'offer') +
     (confirmedRules.length > 0 ? ` + ${confirmedRules.length} added in plain language` : '')
+  const partialWarning = partialCartWarning(cart)
 
   let calcTitle
   let calcNote
   if (!canCalculate) {
-    calcTitle = 'Load rules and a cart to calculate'
+    calcTitle = cartItems.length === 0 && activeRules.length === 0
+      ? 'Load a cart and offers to see your prices'
+      : cartItems.length === 0 ? 'Load a cart to see your prices' : 'Load offers to see your prices'
     calcNote = hasCalculated
-      ? 'Results will update once rules and a cart are loaded'
-      : 'Load rules (CSV or plain language) and a cart to calculate'
+      ? 'Prices will update as soon as a cart and offers are loaded.'
+      : 'Offers can come from a rules CSV or be described in plain language.'
   } else if (!hasCalculated) {
     calcTitle = 'Ready to calculate'
-    calcNote = `${plural(activeRules.length, 'rule')} and ${plural(cartItems.length, 'cart item')} loaded`
+    calcNote = `${plural(cartItems.length, 'item')} and ${plural(activeRules.length, 'offer')} loaded.`
   } else {
     calcTitle = 'Prices are up to date'
-    calcNote = 'Results update automatically when the rules or the cart change'
+    calcNote = 'They update automatically when the cart or the offers change.'
   }
 
   // ── Render ──
@@ -335,160 +352,148 @@ export default function App() {
             <span className="eyebrow"><span className="eyebrow-dot" aria-hidden="true" />Cart pricing</span>
             <h1>Price a cart</h1>
             <p className="lead">
-              Load discount rules and a cart, or describe an offer in plain language. See each item’s final
-              price, the offer behind it and the final cart total.
+              Upload a cart and its offers, or describe an offer in plain language. See the best offer on each
+              item, what you save and the amount to pay.
             </p>
           </div>
           <Progress steps={steps} />
         </div>
 
-        <div className="stack">
+        <div className="checkout-layout">
 
-          {/* 1. Load data */}
-          <section aria-labelledby="load-title">
-            <SectionLabel id="load-title" number={1}>Load data</SectionLabel>
+          {/* 1. Your cart */}
+          <section className="area-cart" aria-labelledby="cart-title">
+            <SectionLabel id="cart-title" number={1}>Your cart</SectionLabel>
             <div className="card">
-              <div className="grid-2">
-                <div className="file-col">
-                  <CsvUploader
-                    label="rules.csv"
-                    title="Discount rules"
-                    description="Choose a rules.csv file. It is read in your browser."
-                    fileName={rulesFileName}
-                    detail={rulesDetail}
-                    status={rulesStatus}
-                    onLoad={handleRulesLoad}
-                  />
-                  <ErrorBanner errors={rulesErrors} fileName={rulesFileName} loadedCount={csvRules.length} />
-                </div>
-                <div className="file-col">
-                  <CsvUploader
-                    label="cart.csv"
-                    title="Cart items"
-                    description="Choose a cart.csv file. It is read in your browser."
-                    fileName={cartFileName}
-                    detail={plural(cartItems.length, 'item')}
-                    status={cartStatus}
-                    onLoad={handleCartLoad}
-                  />
-                  <ErrorBanner errors={cartErrors} fileName={cartFileName} loadedCount={cartItems.length} />
-                </div>
+              <FileUploader
+                label="the cart, a CSV or PDF file"
+                title="Cart items"
+                description="Choose a cart CSV or PDF. It is read in your browser."
+                accept=".csv,.pdf,text/csv,application/pdf"
+                fileName={cart.fileName}
+                detail={plural(cartItems.length, 'item')}
+                status={cartStatus}
+                busyFileName={cartBusyFile}
+                onSelect={handleCartSelect}
+              />
+              {/* A polite live region: the outcome is announced without moving focus */}
+              <div aria-live="polite" className="cart-notice-region">
+                {cartBusyFile && <p className="status-line">Reading {cartBusyFile}…</p>}
+                {cartNotice && <CartLoadNotice notice={cartNotice} onUndo={handleCartUndo} titleRef={cartNoticeTitle} />}
               </div>
 
-              <div className="data-panel">
-                {ruleRows.length === 0 && cartItems.length === 0 ? (
-                  <EmptyState title="No rules or cart loaded yet" bordered icon={TableIcon}>
-                    Choose a rules file and a cart file above. Their contents appear here so you can check them
-                    before calculating.
-                  </EmptyState>
-                ) : (
-                  <DataTabs
-                    label="Loaded data"
-                    activeId={dataTab}
-                    onChange={setDataTab}
-                    tabs={[
-                      {
-                        id: 'rules',
-                        label: 'Rules',
-                        count: ruleRows.length,
-                        content: (
-                          <>
-                            {ruleRows.length > 0 && (
-                              <p className="tab-note">
-                                {csvRules.length} rule{csvRules.length === 1 ? '' : 's'} loaded
-                                {confirmedRules.length > 0 && ` + ${confirmedRules.length} added in plain language`}
-                              </p>
-                            )}
-                            <DataTable
-                              columns={RULES_COLUMNS}
-                              rows={ruleRows}
-                              label="Discount rules in use"
-                              cards
-                              emptyMessage="No rules yet. Choose a rules.csv file above or add a rule in plain language."
-                            />
-                          </>
-                        ),
-                      },
-                      {
-                        id: 'cart',
-                        label: 'Cart items',
-                        count: cartItems.length,
-                        content: (
-                          <>
-                            {cartItems.length > 0 && (
-                              <p className="tab-note">
-                                {cartItems.length} item{cartItems.length > 1 ? 's' : ''} loaded
-                              </p>
-                            )}
-                            <DataTable
-                              columns={CART_COLUMNS}
-                              rows={cartItems}
-                              label="Cart items"
-                              cards
-                              emptyMessage="No cart items yet. Choose a cart.csv file above."
-                            />
-                          </>
-                        ),
-                      },
-                    ]}
+              {cartItems.length > 0 && (
+                <div className="cart-items">
+                  <div className="list-head">
+                    <h3>Items</h3>
+                    <span className="list-count">{plural(cartItems.length, 'item')}</span>
+                  </div>
+                  {!results && (
+                    <p className="list-note">
+                      Base prices are shown. Calculate to see the offers on each item.
+                    </p>
+                  )}
+                  <CartItemList
+                    items={cartItems}
+                    results={results?.items ?? null}
+                    breakdowns={breakdowns}
+                    comparisons={comparisons}
+                    comparingIndex={comparing?.itemIndex ?? null}
+                    preview={preview}
+                    onToggleCompare={handleToggleCompare}
+                    onPreview={handlePreview}
+                    onClosePreview={handleClosePreview}
                   />
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </section>
 
-          {/* 2. Plain-language rules (a candidate only joins the rules once confirmed) */}
-          <section aria-labelledby="rule-input-section">
-            <SectionLabel id="rule-input-section" number={2}>
-              Add a rule in plain language <span className="optional">(optional)</span>
-            </SectionLabel>
-            <RuleInput activeRules={activeRules} cartItems={cartItems} onConfirm={handleConfirmRule} />
-          </section>
+          {/* 2. Offers: rules CSV, plain-language offers (a candidate only joins once confirmed), the active list */}
+          <section className="area-offers" aria-labelledby="offers-title">
+            <SectionLabel id="offers-title" number={2}>Offers</SectionLabel>
+            <div className="offers-stack">
+              <div className="card">
+                <FileUploader
+                  label="rules.csv"
+                  title="Discount rules"
+                  description="Choose a rules.csv file. It is read in your browser."
+                  accept=".csv,text/csv"
+                  fileName={rulesFileName}
+                  detail={rulesDetail}
+                  status={rulesStatus}
+                  onSelect={handleRulesSelect}
+                />
+                <ErrorBanner errors={rulesErrors} fileName={rulesFileName} loadedCount={csvRules.length} />
 
-          {/* 3. Calculate */}
-          <section aria-labelledby="calc-title">
-            <SectionLabel id="calc-title" number={3}>Calculate</SectionLabel>
-            <div className="action-bar">
-              <div className="action-status">
-                {results && <span className="badge success">Calculated</span>}
-                <p>
-                  <strong>{calcTitle}</strong>
-                  <span className="tiny">{calcNote}</span>
-                </p>
-              </div>
-              <button className="btn accent lg" type="button" onClick={handleCalculate} disabled={!canCalculate}>
-                Calculate Discounts
-              </button>
-            </div>
-          </section>
-
-          {/* 4. Results */}
-          <section aria-labelledby="results-title">
-            <SectionLabel id="results-title" number={4}>Cart summary</SectionLabel>
-            <div className="card">
-              {results ? (
-                <div className="results-grid">
+                <div className="active-offers">
+                  <div className="list-head">
+                    <h3>Active offers</h3>
+                    <span className="list-count">{plural(ruleRows.length, 'offer')}</span>
+                  </div>
                   <DataTable
-                    columns={RESULTS_COLUMNS}
-                    rows={results.items}
-                    label="Final price of each cart item and the offer applied"
+                    columns={RULES_COLUMNS}
+                    rows={ruleRows}
+                    label="Active offers"
                     cards
-                    className="results-table"
+                    emptyMessage="No offers yet. Choose a rules.csv file above or describe an offer below."
                   />
-                  <CartTotal results={results} />
                 </div>
+              </div>
+
+              <RuleInput activeRules={activeRules} cartItems={cartItems} onConfirm={handleConfirmRule} />
+            </div>
+          </section>
+
+          {/* 3. Checkout: the actual prices only; previews stay inside their product card */}
+          <section
+            ref={checkoutSection}
+            className={checkoutFits ? 'area-checkout' : 'area-checkout too-tall'}
+            aria-labelledby="checkout-title"
+          >
+            <SectionLabel id="checkout-title" number={3}>Checkout</SectionLabel>
+            {/* Announces the amount to pay whenever it changes (a new cart, new offers) */}
+            <p className="sr-only" aria-live="polite">
+              {summary ? `Amount to pay: ${rupees(summary.finalTotal)}` : ''}
+            </p>
+            <div className="card checkout-card">
+              {results ? (
+                <>
+                  {partialWarning && (
+                    <div className="alert warning checkout-warning">
+                      <span className="symbol" aria-hidden="true">!</span>
+                      <div className="alert-body">
+                        <p className="alert-title">Some cart rows were skipped</p>
+                        <p>{partialWarning}</p>
+                      </div>
+                    </div>
+                  )}
+                  <CheckoutSummary summary={summary} titleRef={checkoutTitle} />
+                  <p className="checkout-status">
+                    <span className="badge success">Calculated</span>
+                    <span>{calcNote}</span>
+                  </p>
+                </>
               ) : (
-                <EmptyState title="No prices yet" icon={PlusIcon}>
-                  {canCalculate
-                    ? 'Select “Calculate Discounts” to price each item and the cart.'
-                    : 'Load rules and a cart, then calculate. Each item’s final price and the offer behind it appear here.'}
-                </EmptyState>
+                <div className="checkout-empty">
+                  <h3 className="price-details-title" ref={checkoutTitle} tabIndex={-1}>Price details</h3>
+                  <p className="checkout-empty-title">{calcTitle}</p>
+                  <p className="checkout-empty-note">{calcNote}</p>
+                  <button className="btn accent lg checkout-calc" type="button" onClick={handleCalculate} disabled={!canCalculate}>
+                    Calculate Discounts
+                  </button>
+                </div>
               )}
             </div>
           </section>
 
         </div>
       </main>
+
+      {/* Below 1100px only (index.css); after the main content in reading and keyboard order */}
+      {summary && (
+        <PayBar finalTotal={summary.finalTotal} totalSavings={summary.totalSavings} onShowDetails={showPriceDetails} />
+      )}
     </div>
   )
 }
