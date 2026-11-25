@@ -8,8 +8,7 @@ effect.
 
 **Live demo:** https://discount-engine-assignment-gold.vercel.app/
 
-The live demo was last deployed from the **Tasks 1–2 version**. Task 3 (PDF upload and the checkout
-layout) is in this repository but has **not been deployed yet**; see
+The live demo runs the current version, including Task 3 (PDF upload and the checkout layout); see
 [Status of Task 3](#status-of-task-3).
 
 ## Assignment tasks
@@ -21,9 +20,9 @@ order they appear:
 | This README | Brief section | Brief's evaluation wording | Status |
 |---|---|---|---|
 | Foundation | Build and deploy the discount engine | "the base engine" | Done; matches the expected results below |
-| Task 1 | Cart-level offer | (checked under Correctness and Tradeoff judgment) | Done; deployed in the Tasks 1–2 version |
-| Task 2 | Natural language rule input | **Task 1**: "parse and apply a new rule" | Done; deployed in the Tasks 1–2 version |
-| Task 3 | PDF cart upload | **Task 2**: "replace the cart and re-run" | Done in this repository; not deployed yet |
+| Task 1 | Cart-level offer | (checked under Correctness and Tradeoff judgment) | Done; deployed |
+| Task 2 | Natural language rule input | **Task 1**: "parse and apply a new rule" | Done; deployed |
+| Task 3 | PDF cart upload | **Task 2**: "replace the cart and re-run" | Done; deployed |
 
 With Task 3, the page was also reorganised as a checkout: product cards, a price breakdown, an
 offer comparison with preview only, and a responsive layout. This goes beyond the brief's wording
@@ -31,11 +30,15 @@ and was agreed during the work; it does not change how prices are calculated.
 
 ### Status of Task 3
 
-- Task 3 is implemented and tested in this repository: 816 automated tests pass, and the sample
-  CSV and sample PDF both give an amount to pay of Rs.5,339.
-- It has **not** been deployed yet, so the live demo above does not have it.
-- Items that still need checking, including on the deployment, are listed under
-  [Pending verification](#pending-verification).
+- Task 3 is complete and deployed to the live demo above. 816 automated tests pass.
+- The production deployment was checked in Chromium on 25 November 2026, without calling Groq:
+  - the PDF.js worker (`.mjs`) returned HTTP 200 as `application/javascript` and read the sample
+    PDF;
+  - the sample CSV and the sample PDF both gave an amount to pay of **Rs.5,339**;
+  - at 375 px wide, the amount-to-pay bar showed Rs.5,339 and savings of Rs.1,255 without covering
+    the page;
+  - the console showed no errors, and `GET /api/parse-rule` returned 405.
+- Items still open are listed under [Pending verification](#pending-verification).
 
 ## Features
 
@@ -460,12 +463,7 @@ These items are open. None of them should be read as done.
    NVDA or VoiceOver.
 2. **Browser coverage:** Firefox and Safari have not been tested, including the `:has()`-based
    spacing above the bottom bar.
-3. **Vercel deployment of PDF.js:** the PDF.js worker is a separate `.mjs` file. Whether Vercel
-   serves it with a JavaScript MIME type, and whether it loads correctly there, still needs checking
-   on the eventual production deployment.
-4. **Deployment:** this version, with Task 3, has not been deployed yet, so the live demo does not
-   include it.
-5. **Node versions:** `package.json` declares Node 22.13 or later, as `pdfjs-dist` 6.5 requires.
+3. **Node versions:** `package.json` declares Node 22.13 or later, as `pdfjs-dist` 6.5 requires.
    Only Node 26.13.1 has been tested; Node 22.13 itself has not.
 
 ## Project structure
