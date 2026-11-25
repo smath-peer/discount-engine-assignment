@@ -47,7 +47,7 @@ then 10% off the cart). This matches the expected results in the brief.
 **Offer comparison** shows what another offer would cost for an item. It is a preview only and
 never changes the offer that is applied.
 
-### Open business decision (F6)
+### Open business decision
 
 An item offer can lower the subtotal below a cart offer's minimum, so the customer loses the cart
 offer and may pay *more* overall than without the item offer. The engine currently maximises
