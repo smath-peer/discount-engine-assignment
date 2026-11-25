@@ -216,6 +216,24 @@ button:disabled { cursor: not-allowed; }
 .impact-figures dd.negative { color: var(--color-danger); }
 .impact-warning { color: var(--color-danger); font-weight: 600; margin-bottom: var(--space-2); }
 .review-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: var(--space-5); }
+.review-tags { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.review .duplicate-note { margin-top: var(--space-4); }
+
+/* The offer form (manual entry and "Edit details") */
+.offer-form .alert { margin-bottom: var(--space-4); }
+.offer-grid { display: grid; gap: var(--space-4); background: #fff; border: 1px solid #E8E1BE; border-radius: var(--radius-small); padding: var(--space-4); }
+.choice { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; min-width: 0; }
+.choice legend { font-size: .8125rem; font-weight: 600; color: var(--color-ink); margin-bottom: 6px; padding: 0; width: 100%; }
+.choice label, .check { display: inline-flex; align-items: center; gap: 8px; font-size: .875rem; color: var(--color-text); min-height: 32px; }
+.choice input, .check input { width: 18px; height: 18px; accent-color: var(--color-ink); margin: 0; }
+.choice input:disabled + * , .choice label:has(input:disabled) { color: var(--color-disabled); }
+.field-hint { font-size: .75rem; color: var(--color-text-muted); margin: 0; width: 100%; }
+.field-error { font-size: .8125rem; font-weight: 600; color: var(--color-danger); margin: 0; }
+.offer-form > .field-error { margin-top: var(--space-3); }
+.field input[aria-invalid="true"] { border-color: var(--color-danger); }
+
+/* "Remove" beside a plain-language offer in the Active offers table */
+.offer-remove { margin-left: 6px; }
 
 /* ── Checkout panel: price details and the amount to pay ────────── */
 .price-details-title { margin-bottom: var(--space-4); }

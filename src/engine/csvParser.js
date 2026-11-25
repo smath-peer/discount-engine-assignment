@@ -16,7 +16,7 @@
  */
 
 import Papa from 'papaparse'
-import { validateRule } from './discountRuleValidator.js'
+import { validateRule, ruleTermsKey } from './discountRuleValidator.js'
 import { validateCartItem } from './cartItemValidator.js'
 
 // ── Reading the CSV structure (shared by both files) ─────────────
@@ -224,9 +224,9 @@ export function parseRulesCSV(csvText) {
 
 const ruleIdKey = (id) => id.trim().toUpperCase()
 
-/** The terms that decide what a rule does; brand and platform are compared as the engine matches them. */
-const termsKey = (rule) =>
-  JSON.stringify([rule.scope, rule.appliesTo.trim().toLowerCase(), rule.type, rule.value, rule.stackable, rule.minCartValue])
+// Shared with the plain-language and manual offers (appRules.js), so every
+// source agrees on what "the same offer" means
+const termsKey = ruleTermsKey
 
 /** Why this rule is a duplicate of an earlier row, or null if it is not one. */
 function duplicateMessage(ruleId, rule, seenIds, seenTerms) {

@@ -115,6 +115,23 @@ export function validateRule(candidate) {
  * Formats a received value for an error message.
  * Strings are quoted; long text is cut short so messages stay readable.
  */
+/**
+ * A key for the terms that decide what a valid rule does (not its ID). Two
+ * rules with the same key are the same offer, and applying both would give
+ * the discount twice. Brand and platform names are compared as the engine
+ * matches them: ignoring case and outer spaces.
+ */
+export function ruleTermsKey(rule) {
+  return JSON.stringify([
+    rule.scope,
+    (rule.appliesTo ?? '').trim().toLowerCase(),
+    rule.type,
+    rule.value,
+    rule.stackable,
+    rule.minCartValue ?? null,
+  ])
+}
+
 function show(received) {
   if (received === undefined) return 'nothing'
   let text

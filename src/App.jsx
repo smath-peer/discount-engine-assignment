@@ -32,7 +32,9 @@ import PayBar from './components/PayBar.jsx'
 import DataTable from './components/DataTable.jsx'
 import RuleInput from './components/RuleInput.jsx'
 import { uploadStatus, progressSteps, plural } from './components/loadStatus.js'
-import { combineRules, canCalculate as hasEnoughToCalculate, computeResults, addConfirmedRule } from './appRules.js'
+import {
+  combineRules, canCalculate as hasEnoughToCalculate, computeResults, addConfirmedRule, removeConfirmedRule, restoreConfirmedRule,
+} from './appRules.js'
 import { INITIAL_RULES_STATE, readRulesFile, applyRulesLoad, undoRulesLoad, withdrawRulesUndo } from './rulesLoad.js'
 import { INITIAL_CART_STATE, readCartFile, applyCartLoad, undoCartLoad } from './cartLoad.js'
 import { loadPdfjs } from './pdf/loadPdfjs.js'
@@ -57,7 +59,12 @@ const RULES_COLUMNS = [
       <>
         <strong>{v}</strong>
         {row.source === 'plain-language' && (
-          <> <span className="tag" title="Added in plain language">Added</span></>
+          <>
+            {' '}<span className="tag" title="Added here, in plain language or manually">Added</span>
+            <button type="button" className="btn secondary sm offer-remove" onClick={() => row.onRemove(v)}>
+              Remove<span className="sr-only"> offer {v}</span>
+            </button>
+          </>
         )}
       </>
     ),
@@ -202,13 +209,11 @@ export default function App() {
   }
 
   // Rows for the active offers table, marking which were added in plain language
-  const ruleRows = useMemo(
-    () => [
-      ...csvRules.map((rule) => ({ ...rule, source: 'csv' })),
-      ...confirmedRules.map((rule) => ({ ...rule, source: 'plain-language' })),
-    ],
-    [csvRules, confirmedRules],
-  )
+  // (built on every render, so each Remove button calls the current handler)
+  const ruleRows = [
+    ...csvRules.map((rule) => ({ ...rule, source: 'csv' })),
+    ...confirmedRules.map((rule) => ({ ...rule, source: 'plain-language', onRemove: handleRemoveOffer })),
+  ]
 
   // ── Handlers ──
 
@@ -224,6 +229,7 @@ export default function App() {
     const request = ++rulesRequest.current
     setRulesBusyFile(file.name)
     setRulesNotice(null) // an older Undo must not be pressed while the new file is read
+    setRemovedOffer(null)
     const result = await readRulesFile(file, confirmedRules)
     if (request !== rulesRequest.current) return // a newer file was chosen meanwhile
 
@@ -239,6 +245,7 @@ export default function App() {
   function handleRulesUndo() {
     const undone = undoRulesLoad(rulesState, { pricesShownAfter: hasCalculated && cartItems.length > 0 })
     if (!undone) return
+    setRemovedOffer(null)
     setRulesState(undone.state)
     setRulesNotice(undone.notice)
     setFocusRulesNotice(true) // the Undo button is gone, so focus moves to the outcome
@@ -249,6 +256,61 @@ export default function App() {
     rulesNoticeTitle.current?.focus()
     setFocusRulesNotice(false)
   }, [focusRulesNotice])
+
+  // ── Removing an offer added here (plain language or manual), with Undo ──
+  //
+  // The outcome is shown in the same notice as rules uploads, so there is
+  // only ever one Undo for the offers. Undo is withdrawn by any other change
+  // to the offers (an upload, a confirmation, another removal).
+
+  // The offer the last removal took out, as { rule, index }, while its Undo is offered
+  const [removedOffer, setRemovedOffer] = useState(null)
+
+  /** What the notice says about prices once `rules` are the offers in use. */
+  function pricesLine(rules, recalculated) {
+    if (!hasCalculated || cartItems.length === 0) return []
+    return rules.length > 0
+      ? [recalculated]
+      : ['No offers are in use now, so prices are not shown until an offer is added.']
+  }
+
+  function handleRemoveOffer(ruleId) {
+    const result = removeConfirmedRule(confirmedRules, ruleId)
+    if (!result) return
+    setConfirmedRules(result.confirmedRules)
+    setRemovedOffer(result.removed)
+    setRulesState(withdrawRulesUndo) // one Undo at a time: this notice replaces any upload's
+    setRulesNotice({
+      kind: 'removed',
+      tone: 'success',
+      title: `Offer ${ruleId} removed`,
+      lines: pricesLine([...csvRules, ...result.confirmedRules], 'Prices were recalculated without it.'),
+      skipped: [],
+      notes: [],
+      canUndo: true,
+    })
+    setFocusRulesNotice(true) // its Remove button is gone, so focus moves to the outcome
+  }
+
+  function handleRemovalUndo() {
+    if (!removedOffer) return
+    const restored = restoreConfirmedRule(csvRules, confirmedRules, removedOffer)
+    const ruleId = removedOffer.rule.ruleId
+    setRemovedOffer(null)
+    if (!restored) {
+      setRulesNotice({
+        kind: 'removed', tone: 'danger', title: `Offer ${ruleId} could not be restored`,
+        lines: ['Another active offer now uses its ID or its terms.'], skipped: [], notes: [], canUndo: false,
+      })
+    } else {
+      setConfirmedRules(restored)
+      setRulesNotice({
+        kind: 'removed', tone: 'success', title: `Offer ${ruleId} restored`,
+        lines: pricesLine([...csvRules, ...restored], 'Prices were recalculated with it.'), skipped: [], notes: [], canUndo: false,
+      })
+    }
+    setFocusRulesNotice(true)
+  }
 
   /**
    * Reads a cart CSV or PDF. A file with usable rows replaces the cart (with
@@ -327,13 +389,16 @@ export default function App() {
     setFocusCheckout(true)
   }
 
+  /** Returns { error } when the rule is not added (invalid, or the same offer is already active). */
   function handleConfirmRule(rule) {
     const result = addConfirmedRule(csvRules, confirmedRules, rule)
-    if (result.error) return // RuleInput validated it already; never add an invalid rule
+    if (result.error) return { error: result.error } // never add an invalid or duplicate rule
     setConfirmedRules(result.confirmedRules)
-    // Its ID was chosen to avoid the offers in use, so the replaced offers can no longer come back
+    // Its ID was chosen to avoid the offers in use, so replaced or removed offers can no longer come back
     setRulesState(withdrawRulesUndo)
+    setRemovedOffer(null)
     setRulesNotice((notice) => (notice?.canUndo ? { ...notice, canUndo: false } : notice))
+    return {}
   }
 
   const canCalculate = hasEnoughToCalculate(activeRules, cartItems)
@@ -345,7 +410,7 @@ export default function App() {
   const cartStatus = uploadStatus({ fileName: cart.fileName, rowCount: cartItems.length, errorCount: cart.skipped.length })
   const rulesDetail =
     plural(csvRules.length, 'offer') +
-    (confirmedRules.length > 0 ? ` + ${confirmedRules.length} added in plain language` : '')
+    (confirmedRules.length > 0 ? ` + ${confirmedRules.length} added here` : '')
   const partialWarning = partialCartWarning(cart)
 
   let calcTitle
@@ -461,9 +526,9 @@ export default function App() {
                   {rulesNotice && (
                     <CartLoadNotice
                       notice={rulesNotice}
-                      onUndo={handleRulesUndo}
+                      onUndo={rulesNotice.kind === 'removed' ? handleRemovalUndo : handleRulesUndo}
                       titleRef={rulesNoticeTitle}
-                      undoLabel="restore the previous offers"
+                      undoLabel={rulesNotice.kind === 'removed' ? 'restore the removed offer' : 'restore the previous offers'}
                     />
                   )}
                 </div>

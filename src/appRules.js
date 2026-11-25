@@ -12,7 +12,7 @@
  * Kept free of React so the rules can be tested directly.
  */
 
-import { validateRule } from './engine/discountRuleValidator.js'
+import { validateRule, ruleTermsKey } from './engine/discountRuleValidator.js'
 import { priceCart } from './engine/discountEngine.js'
 import { nextRuleId } from './components/ruleInputState.js'
 
@@ -48,6 +48,9 @@ export function computeResults({ hasCalculated, activeRules, cartItems }) {
 export function addConfirmedRule(csvRules, confirmedRules, candidate) {
   const { rule, errors } = validateRule(candidate)
   if (!rule) return { error: errors[0]?.message ?? 'invalid rule' }
+  // The same offer twice would give the discount twice
+  const duplicate = findDuplicateOffer([...csvRules, ...confirmedRules], rule)
+  if (duplicate) return { error: duplicateOfferMessage(duplicate), duplicateOf: duplicate.ruleId }
 
   const usedIds = [...csvRules, ...confirmedRules].map((r) => r.ruleId)
   const taken = new Set(usedIds.map(idKey))
@@ -75,4 +78,52 @@ export function withoutConfirmedIdClashes(uploadedRules, confirmedRules) {
     }
   }
   return { rules, errors }
+}
+
+// ── Duplicate offers ──────────────────────────────────────────────
+
+/**
+ * The active rule that is the same offer as `candidate` (same scope, brand
+ * or platform, type, value, stackable and minimum; see ruleTermsKey), or
+ * null. The candidate is validated first, so it is compared exactly as it
+ * would be added. Offers that differ in any of these terms are not duplicates.
+ */
+export function findDuplicateOffer(activeRules, candidate) {
+  const { rule } = validateRule(candidate)
+  if (!rule) return null
+  const key = ruleTermsKey(rule)
+  return activeRules.find((active) => ruleTermsKey(active) === key) ?? null
+}
+
+/** The message shown when an offer is already active. */
+export function duplicateOfferMessage(duplicate) {
+  return `This offer is already active as ${duplicate.ruleId}, so adding it again would apply the same discount twice.`
+}
+
+// ── Removing a plain-language offer ───────────────────────────────
+
+/**
+ * Removes one confirmed offer by ID. Returns { confirmedRules, removed }
+ * where removed is { rule, index } (for Undo), or null if there is no such offer.
+ */
+export function removeConfirmedRule(confirmedRules, ruleId) {
+  const index = confirmedRules.findIndex((rule) => rule.ruleId === ruleId)
+  if (index < 0) return null
+  return {
+    confirmedRules: [...confirmedRules.slice(0, index), ...confirmedRules.slice(index + 1)],
+    removed: { rule: confirmedRules[index], index },
+  }
+}
+
+/**
+ * Puts a removed offer back where it was. Returns the new confirmed list, or
+ * null if it can no longer go back safely: its ID or its terms are now used
+ * by another active rule. (App also withdraws Undo whenever the rules change.)
+ */
+export function restoreConfirmedRule(csvRules, confirmedRules, removed) {
+  const active = [...csvRules, ...confirmedRules]
+  if (active.some((rule) => idKey(rule.ruleId) === idKey(removed.rule.ruleId))) return null
+  if (findDuplicateOffer(active, removed.rule)) return null
+  const index = Math.min(removed.index, confirmedRules.length)
+  return [...confirmedRules.slice(0, index), removed.rule, ...confirmedRules.slice(index)]
 }

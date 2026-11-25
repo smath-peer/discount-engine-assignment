@@ -55,6 +55,7 @@ describe('state machine', () => {
     assert.deepEqual(reduce(), {
       phase: 'idle', requestId: 0, candidate: null, message: '', missingFields: [],
       errorCode: null, retryAfterSeconds: null, confirmedRuleId: null,
+      origin: null, draft: null, previousCandidate: null, showDraftErrors: false, confirmError: '',
     })
   })
 

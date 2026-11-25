@@ -11,7 +11,9 @@
  *   2. Exactly one request, no retry, no fallback, 15 s timeout, 64 KB response cap.
  *   3. Only the answer text and finish_reason are read (hidden reasoning is ignored).
  *   4. The answer must parse as JSON with the expected shape and field types.
- *   5. Number grounding: every number in the rule must appear in the sentence.
+ *   5. Number grounding: every number in the rule must appear in the sentence;
+ *      then field grounding (groundRule.js): the name, scope, type, amount and
+ *      minimum must each match the wording.
  *   6. The shared validateRule decides whether the rule is allowed.
  *
  * Returns one of:
@@ -27,6 +29,7 @@
  */
 
 import { validateRule } from '../../src/engine/discountRuleValidator.js'
+import { groundRule } from './groundRule.js'
 
 export const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions'
 export const GROQ_MODEL = 'openai/gpt-oss-20b'
@@ -397,6 +400,13 @@ function toResult(answer, sentence) {
       missingFields: ungrounded,
       message: `Please write ${joinPrompts(ungrounded)} in digits.`,
     }
+  }
+
+  // Field grounding: the rule must say what the sentence says (groundRule.js)
+  const grounding = groundRule(candidate, sentence)
+  if (grounding?.kind === 'cart_condition') return unsupported(CART_CONDITION_MESSAGE)
+  if (grounding) {
+    return { status: 'needs_clarification', rule: null, missingFields: grounding.fields, message: grounding.message }
   }
 
   // Shared business rules (the same validator the CSV upload uses)

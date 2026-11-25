@@ -14,6 +14,15 @@
  *     │◄────cancel──────┘  (a "cancelled" result also returns to idle)
  *     │◄────discard / confirmed ──────────────────┘
  *
+ *   any phase but loading ──startManual──► editing (an empty draft; no request is ever made)
+ *   review ──startEdit──► editing (the draft is filled from the candidate)
+ *   editing ──saveDraft (valid)──► review (the candidate becomes the draft's rule)
+ *   editing ──cancelEdit──► review with the previous candidate, or idle if there was none
+ *
+ * The draft is the form's text, not a rule: only a draft that passes the
+ * shared validateRule becomes the candidate, and only a confirmed candidate
+ * reaches the parent. Editing never changes the active rules or the cart.
+ *
  * Every request carries a requestId. A response is applied only if it
  * belongs to the request currently loading, so a late or cancelled reply
  * can never overwrite a newer one.
@@ -31,6 +40,21 @@ export const initialRuleInputState = Object.freeze({
   errorCode: null,
   retryAfterSeconds: null,
   confirmedRuleId: null, // set after a confirmation, for the "Rule NL-1 added" note
+  origin: null, // where the candidate came from: 'ai' | 'manual' | 'edited' (an AI rule changed by hand)
+  draft: null, // the form's values while editing (see EMPTY_DRAFT)
+  previousCandidate: null, // the candidate an edit started from, restored by cancelEdit
+  showDraftErrors: false, // true once saving an invalid draft was attempted
+  confirmError: '', // why the parent refused the confirmation (e.g. a duplicate)
+})
+
+/** A new manual offer's form values. Numbers are kept as typed text until saved. */
+export const EMPTY_DRAFT = Object.freeze({
+  scope: 'brand',
+  appliesTo: '',
+  type: 'percentage',
+  value: '',
+  minCartValue: '',
+  stackable: false,
 })
 
 const INVALID_CANDIDATE_MESSAGE = 'This rule is no longer valid, so it was not added. Please describe it again.'
@@ -79,9 +103,139 @@ export function ruleInputReducer(state, action) {
         message: INVALID_CANDIDATE_MESSAGE,
       }
 
+    case 'confirmRejected':
+      // The parent refused it (e.g. the same offer became active meanwhile): keep the review open
+      if (state.phase !== 'review') return state
+      return { ...state, confirmError: String(action.message ?? '') }
+
+    case 'startManual':
+      if (state.phase === 'loading') return state
+      return { ...initialRuleInputState, requestId: state.requestId, phase: 'editing', origin: 'manual', draft: { ...EMPTY_DRAFT } }
+
+    case 'startEdit':
+      if (state.phase !== 'review' || !state.candidate) return state
+      return {
+        ...state,
+        phase: 'editing',
+        draft: draftFromRule(state.candidate),
+        previousCandidate: state.candidate,
+        showDraftErrors: false,
+        confirmError: '',
+      }
+
+    case 'updateDraft':
+      if (state.phase !== 'editing') return state
+      return { ...state, draft: updateDraft(state.draft, action.field, action.value) }
+
+    case 'saveDraft': {
+      if (state.phase !== 'editing') return state
+      const { rule } = draftToRule(state.draft)
+      if (!rule) return { ...state, showDraftErrors: true }
+      return {
+        ...initialRuleInputState,
+        requestId: state.requestId,
+        phase: 'review',
+        candidate: rule,
+        origin: state.origin === 'ai' ? 'edited' : state.origin,
+      }
+    }
+
+    case 'cancelEdit':
+      if (state.phase !== 'editing') return state
+      if (!state.previousCandidate) return { ...initialRuleInputState, requestId: state.requestId }
+      return {
+        ...initialRuleInputState,
+        requestId: state.requestId,
+        phase: 'review',
+        candidate: state.previousCandidate,
+        origin: state.origin,
+      }
+
     default:
       return state
   }
+}
+
+// ── The edit form's draft ─────────────────────────────────────────
+
+/** The form values for an existing rule (numbers become text, as typed). */
+export function draftFromRule(rule) {
+  return {
+    scope: rule.scope,
+    appliesTo: rule.scope === 'cart' ? '' : rule.appliesTo ?? '',
+    type: rule.type,
+    value: String(rule.value),
+    minCartValue: rule.minCartValue == null ? '' : String(rule.minCartValue),
+    stackable: Boolean(rule.stackable),
+  }
+}
+
+/**
+ * Changes one form value. A whole-cart offer can only be a percentage, so
+ * choosing Cart switches a flat amount to a percentage (the form says so).
+ */
+export function updateDraft(draft, field, value) {
+  if (!Object.hasOwn(EMPTY_DRAFT, field)) return draft
+  const next = { ...draft, [field]: field === 'stackable' ? Boolean(value) : String(value ?? '') }
+  if (field === 'scope' && next.scope === 'cart' && next.type === 'flat') next.type = 'percentage'
+  return next
+}
+
+// Numbers are written as digits with an optional decimal part, as in the CSV
+const DECIMAL = /^\d+(?:\.\d+)?$/
+
+/**
+ * Turns the form into a rule with the same shared validator as the CSV and
+ * the rule assistant. Returns { rule, errors }:
+ *   rule:   the validated rule (no ruleId), or null
+ *   errors: { field: message } in plain words, for the fields that need fixing
+ */
+export function draftToRule(draft) {
+  const errors = {}
+  const scope = draft?.scope
+  const isCart = scope === 'cart'
+  const target = scope === 'platform' ? 'platform' : 'brand'
+
+  const appliesTo = isCart ? '' : String(draft?.appliesTo ?? '').trim()
+  if (!isCart && appliesTo === '') errors.appliesTo = `Enter the ${target} name, as it appears in the cart.`
+  else if (appliesTo.length > 100) errors.appliesTo = `The ${target} name can be at most 100 characters.`
+
+  const valueText = String(draft?.value ?? '').trim()
+  let value = null
+  if (valueText === '') errors.value = 'Enter the discount amount.'
+  else if (!DECIMAL.test(valueText)) {
+    errors.value = valueText.startsWith('-')
+      ? 'The discount must be more than 0.'
+      : 'Enter the discount as a number, using digits only, for example 10 or 10.5.'
+  } else {
+    value = Number(valueText)
+    if (!(value > 0)) errors.value = 'The discount must be more than 0.'
+    else if (draft.type === 'percentage' && value > 100) errors.value = 'A percentage cannot be more than 100.'
+  }
+
+  let minCartValue = null
+  if (isCart) {
+    const minText = String(draft?.minCartValue ?? '').trim()
+    if (minText === '') errors.minCartValue = 'Enter the minimum cart value, for example 5000.'
+    else if (!DECIMAL.test(minText)) {
+      errors.minCartValue = minText.startsWith('-')
+        ? 'The minimum cart value cannot be negative.'
+        : 'Enter the minimum cart value using digits only, for example 5000.'
+    } else minCartValue = Number(minText)
+  }
+
+  if (Object.keys(errors).length > 0) return { rule: null, errors }
+
+  // The shared validator has the final word, so all three sources agree
+  const { rule, errors: ruleErrors } = validateRule({
+    scope, appliesTo, type: draft.type, value, stackable: Boolean(draft.stackable), minCartValue,
+  })
+  if (rule) return { rule, errors: {} }
+  for (const error of ruleErrors) {
+    const field = Object.hasOwn(EMPTY_DRAFT, error.field) ? error.field : 'scope'
+    errors[field] ??= error.unsupported ? 'A whole-cart offer can only be a percentage.' : `Check this value: ${error.message}.`
+  }
+  return { rule: null, errors }
 }
 
 /** Maps a parseRuleInstruction result to the next state. */
@@ -90,7 +244,7 @@ function applyResult(requestId, result) {
   switch (result?.status) {
     case 'ok':
       if (!result.rule) break
-      return { ...base, phase: 'review', candidate: result.rule }
+      return { ...base, phase: 'review', candidate: result.rule, origin: 'ai' }
     case 'needs_clarification':
       return {
         ...base,
@@ -121,7 +275,7 @@ function applyResult(requestId, result) {
 
 /** True when the text can be sent: nothing is loading and it is 3–300 characters. */
 export function canSubmit(state, text) {
-  if (state.phase === 'loading') return false
+  if (state.phase === 'loading' || state.phase === 'editing') return false // one way of describing an offer at a time
   const length = typeof text === 'string' ? text.trim().length : 0
   return length >= MIN_TEXT_LENGTH && length <= MAX_TEXT_LENGTH
 }
