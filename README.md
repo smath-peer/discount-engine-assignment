@@ -6,7 +6,7 @@ amount to pay. New offers can also be described in plain language: an AI model p
 server checks it, and the user reviews and confirms it before it affects any price.
 
 - **Live demo:** https://discount-engine-assignment-gold.vercel.app/
-- **Video walkthrough (Loom):** _link to be added_
+- **Video walkthrough (Loom):** https://www.loom.com/share/f9fcc18722964667ad8cea6c9e22dd7a
 
 ## Assignment coverage
 
@@ -77,6 +77,37 @@ been made, so the behaviour is documented here and deliberately left unchanged.
   (brand or platform, scope, type, amounts, minimum) is actually in the sentence and passes the
   shared validator; anything unclear becomes a question back to the user. The user then sees the
   rule's effect on the cart, can edit it, and must confirm it before it takes effect.
+
+## Decisions and trade-offs
+
+- **No backend server or database.** Pricing, file reading and validation all run in the browser.
+  The only server code is one serverless function that calls the AI model, so the API key never
+  reaches the browser. This keeps the app simple and cheap to host; the trade-off is that confirmed
+  offers last for the browser session only.
+- **Human review instead of automatic AI rules.** Every AI-proposed offer is previewed, editable and
+  must be confirmed. This is the simplest control that stops a wrong offer reaching checkout. A
+  measured evaluation set for the AI is the next step once volume grows or the model changes.
+- **Strict over convenient.** The AI grounding asks for clarification rather than guessing (for
+  example "Amazon" vs "Amazon India"). A few valid sentences need rewording, but a wrong brand,
+  amount or minimum is never silently accepted.
+- **Skip, don't repair.** Invalid cart or rule rows are skipped with a reason instead of being
+  auto-corrected, so prices are never based on data the user did not write.
+- **Cart files stay in the browser.** PDFs are read locally with PDF.js rather than uploaded to a
+  server or an OCR service. This is better for privacy and cost, but scanned PDFs are not supported.
+- **Pricing policy left unchanged.** The item-offers-first behaviour (see *Open business decision*)
+  is documented rather than changed, because which result is "right" is a business call.
+
+## Proposed changes to the brief
+
+- **Decide the pricing policy** for the case where an item offer drops the cart below a cart
+  offer's minimum: maximise item savings (current behaviour) or always give the lowest amount to pay.
+- **Say whether cart offers can be flat amounts** (for example "Rs.500 off the cart"). They are
+  percentage-only in this build.
+- **Say whether brand or platform offers can have a minimum cart value.** This build supports a
+  minimum on cart offers only and asks the user to rephrase otherwise.
+- **Provide a list of known brand and platform names**, so short forms such as "Amazon" can be
+  matched safely instead of needing clarification.
+- **State whether offers must persist** beyond a session, which would require a database.
 
 ## Project structure
 
